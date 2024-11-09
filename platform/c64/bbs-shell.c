@@ -452,7 +452,7 @@ void bbs_splash(unsigned short mode)
 void bbs_lock(void)
 {
 
-  log_message("\x1c","bbs lock");
+  log_message("\x1c","bbs connect");
 
   //Change border colour to red
   bordercolor(2);
@@ -470,7 +470,7 @@ void bbs_lock(void)
 void bbs_unlock(void)
 {
   //char message[20];
-  log_message("\x1e","bbs unlock");
+  log_message("\x1e","bbs disconnect");
 
   //Change border colour to black
   bordercolor(0);
@@ -967,7 +967,7 @@ PROCESS_THREAD(movie_process, ev, data)
 
   	//shell_output_str(NULL, "\x93", "");
 
-	bbs_status.speed = 6;
+	bbs_status.speed = 3;
 
 	//shell_output_str(NULL,"", PETSCII_WHITE);
 	shell_prompt("\x05\n\rselect movie (1-20):");
@@ -1069,6 +1069,7 @@ PROCESS_THREAD(shell_exit_process, ev, data)
 
   unsigned char file[25];
   unsigned char prefix[20];
+  char message[40];
 
   PROCESS_BEGIN();
 
@@ -1095,6 +1096,18 @@ PROCESS_THREAD(shell_exit_process, ev, data)
 	log_message("\x05logout: ", bbs_user.user_name);
 
 	shell_stop();
+
+        update_time();
+	sprintf(message,"%d:%d %d/%d/%d\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day,  bbs_time.month, bbs_time.year);
+
+	cbm_open(4, 4, 7, NULL);
+	cbm_write(4,message,sizeof(message));
+	cbm_write(4,bbs_user.user_name, sizeof(bbs_user.user_name));
+	cbm_close(4);
+
+	cbm_open(4,4,7,NULL);
+	cbm_close(4);
+
 	PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
@@ -1152,7 +1165,7 @@ PROCESS_THREAD(settime_process, ev, data)
 
           set_time = (unsigned long)bbs_time.minute*60 + (unsigned long)bbs_time.hour*3600;
           clock_offset =  set_time - clock_seconds();
-  		    update_time();
+          update_time();
           break;
         }
       }
