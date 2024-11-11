@@ -424,6 +424,7 @@ void system_stats(void)
 void save_stats(void)
 {
 	unsigned char file[25];
+	char message[40];
 
 	//Save system stats:
 	sprintf(file, "@%s:%s",board.sys_prefix, BBS_STATS_FILE);
@@ -433,7 +434,13 @@ void save_stats(void)
 	sprintf(file, "@%s:s-%s", board.userstats_prefix, bbs_user.user_name);
 	cbm_save (file, board.userstats_device, &bbs_usrstats, sizeof(bbs_usrstats));
 
-  log_message("\x96stats file saved for: ", bbs_user.user_name);
+  	log_message("\x96stats file saved for: ", bbs_user.user_name);
+ 
+        sprintf(message,"%d:%d %d/%d/%d - %d,%d - %s\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day, bbs_time.month, bbs_time.year, bbs_status.encoding, bbs_status.width, bbs_user.user_name);
+
+        cbm_open(4, 4, 7, NULL);
+        cbm_write(4,message,sizeof(message));
+        cbm_close(4);
 }
 /*---------------------------------------------------------------------------*/
 /*void bbs_log(char *message ){
@@ -1069,7 +1076,6 @@ PROCESS_THREAD(shell_exit_process, ev, data)
 
   unsigned char file[25];
   unsigned char prefix[20];
-  char message[40];
 
   PROCESS_BEGIN();
 
@@ -1096,13 +1102,6 @@ PROCESS_THREAD(shell_exit_process, ev, data)
 	log_message("\x05logout: ", bbs_user.user_name);
 
 	shell_stop();
-
-        update_time();
-	sprintf(message,"%d:%d %d/%d/%d - %d,%d - %s\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day, bbs_time.month, bbs_time.year, bbs_status.encoding, bbs_status.width, bbs_user.user_name);
-
-	cbm_open(4, 4, 7, NULL);
-	cbm_write(4,message,sizeof(message));
-	cbm_close(4);
 
 	PROCESS_END();
 }
