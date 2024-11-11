@@ -1098,14 +1098,10 @@ PROCESS_THREAD(shell_exit_process, ev, data)
 	shell_stop();
 
         update_time();
-	sprintf(message,"%d:%d %d/%d/%d\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day,  bbs_time.month, bbs_time.year);
+	sprintf(message,"%d:%d %d/%d/%d - %d,%d - %s\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day, bbs_time.month, bbs_time.year, bbs_status.encoding, bbs_status.width, bbs_user.user_name);
 
 	cbm_open(4, 4, 7, NULL);
 	cbm_write(4,message,sizeof(message));
-	cbm_write(4,bbs_user.user_name, sizeof(bbs_user.user_name));
-	cbm_close(4);
-
-	cbm_open(4,4,7,NULL);
 	cbm_close(4);
 
 	PROCESS_END();
