@@ -55,11 +55,11 @@ PROCESS(bbs_timer_process, "timer");
 PROCESS(bbs_login_process, "login");
 SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_process);
 
-PROCESS(shell_killall_process, "killall");
-SHELL_COMMAND(killall_command, "killall", "killall : stop all running commands", &shell_killall_process);
+//PROCESS(shell_killall_process, "killall");
+//SHELL_COMMAND(killall_command, "killall", "killall : stop all running commands", &shell_killall_process);
 
-PROCESS(shell_kill_process, "kill");
-SHELL_COMMAND(kill_command, "kill", "kill <command> : stop a specific command", &shell_kill_process);
+//PROCESS(shell_kill_process, "kill");
+//SHELL_COMMAND(kill_command, "kill", "kill <command> : stop a specific command", &shell_kill_process);
 
 /*---------------------------------------------------------------------------*/
 PROCESS(version_process, "version");
@@ -150,7 +150,7 @@ static void bbs_init(void)
   unsigned char i;
   //unsigned char message[40];
 
-
+  cbm_open(4, 4, 7, "");
 /*
   sprintf(file, "//x/:%s", BBS_CFG_FILE);
 
@@ -424,7 +424,7 @@ void system_stats(void)
 void save_stats(void)
 {
 	unsigned char file[25];
-	char message[40];
+	char message[80];
 
 	//Save system stats:
 	sprintf(file, "@%s:%s",board.sys_prefix, BBS_STATS_FILE);
@@ -434,13 +434,13 @@ void save_stats(void)
 	sprintf(file, "@%s:s-%s", board.userstats_prefix, bbs_user.user_name);
 	cbm_save (file, board.userstats_device, &bbs_usrstats, sizeof(bbs_usrstats));
 
-  	log_message("\x96stats file saved for: ", bbs_user.user_name);
+  	//log_message("\x96stats file saved for: ", bbs_user.user_name);
  
-        sprintf(message,"%d:%d %d/%d/%d - %d,%d - %s\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day, bbs_time.month, bbs_time.year, bbs_status.encoding, bbs_status.width, bbs_user.user_name);
+        sprintf(message,"%d:%d %d/%d/%d - %s - %d,%d - %d,%d,%d,%d,%d,%d,%d,%d\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day, bbs_time.month, bbs_time.year, bbs_user.user_name, bbs_status.encoding, bbs_status.width, bbs_config.msg_id[1],bbs_config.msg_id[2],bbs_config.msg_id[3],bbs_config.msg_id[4],bbs_config.msg_id[5],bbs_config.msg_id[6],bbs_config.msg_id[7],bbs_config.msg_id[8]);
 
-        cbm_open(4, 4, 7, "");
+        //cbm_open(4, 4, 7, "");
         cbm_write(4,message,sizeof(message));
-        cbm_close(4);
+        //cbm_close(4);
 }
 /*---------------------------------------------------------------------------*/
 /*void bbs_log(char *message ){
@@ -841,7 +841,7 @@ killall(void)
   for(c = list_head(commands);
       c != NULL;
       c = c->next) {
-    if(c != &killall_command && process_is_running(c->process)) {
+    if(process_is_running(c->process)) {
       command_kill(c);
     }
   }
@@ -887,7 +887,7 @@ PROCESS_THREAD(bbs_timer_process, ev, data)
 }
 
 /*---------------------------------------------------------------------------*/
-PROCESS_THREAD(shell_killall_process, ev, data)
+/*PROCESS_THREAD(shell_killall_process, ev, data)
 {
 
   PROCESS_BEGIN();
@@ -895,9 +895,9 @@ PROCESS_THREAD(shell_killall_process, ev, data)
   killall();
   
   PROCESS_END();
-}
+}*/
 /*---------------------------------------------------------------------------*/
-PROCESS_THREAD(shell_kill_process, ev, data)
+/*PROCESS_THREAD(shell_kill_process, ev, data)
 {
   struct shell_command *c;
   char *name;
@@ -923,7 +923,7 @@ PROCESS_THREAD(shell_kill_process, ev, data)
   shell_output_str(&kill_command, "Command not found: ", name);
   
   PROCESS_END();
-}
+}*/
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(version_process, ev, data)
 {
@@ -984,7 +984,7 @@ PROCESS_THREAD(movie_process, ev, data)
 	num = atoi(input->data1);
 	sprintf(file,"//m/:%d", num);
 
-	if(num>0 && num <=20){
+	if(num>0 && num <=21){
 
 	    //shell_output_str(NULL, "\n\r+ -> increase speed\n\r- -> decrease speed\n\rq -> quit movie\n\r", "");
 	    //shell_output_str(NULL, "hit return to stop stream once playing\n\r", "");
@@ -1270,11 +1270,11 @@ start_command(char *commandline, struct shell_command *child)
     shell_output_str(NULL, commandline, ": command not found (try '?')");
     command_kill(child);
     c = NULL;
-  } else if(process_is_running(c->process) || child == c) {
+  }/* else if(process_is_running(c->process) || child == c) {
     shell_output_str(NULL, commandline, ": command already running");
     c->child = NULL;
     c = NULL;
-  } else {
+  }*/ else {
     c->child = child;
     /*    printf("shell: start_command starting '%s'\n", c->process->name);*/
     /* Start a new process for the command. */
@@ -1342,13 +1342,14 @@ shell_input(char *commandline, int commandline_len)
 
   /*  printf("shell_input front_process '%s'\n", front_process->name);*/
 
-  if(commandline[0] == '~' &&
-     commandline[1] == 'K') {
+  //log_message("cmd",commandline);
+  //if(commandline[0] == '~' &&
+  //   commandline[1] == 'K') {
     /*    process_start(&shell_killall_process, commandline);*/
-    if(front_process != &shell_process) {
-      process_exit(front_process);
-    }
-  } else {
+  //  if(front_process != &shell_process) {
+  //    process_exit(front_process);
+  //  }
+  //} else {
     if(process_is_running(front_process)) {
       input.data1 = commandline;
       input.len1 = commandline_len;
@@ -1356,7 +1357,7 @@ shell_input(char *commandline, int commandline_len)
       input.len2 = 0;
       process_post_synch(front_process, shell_event_input, &input);
     }
-  }
+  //}
 }
 /*---------------------------------------------------------------------------*/
 void
