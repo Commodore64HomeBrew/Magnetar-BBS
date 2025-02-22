@@ -439,7 +439,7 @@ void save_stats(void)
         sprintf(message,"%d:%d %d/%d/%d - %s - %d,%d - %d,%d,%d,%d,%d,%d,%d,%d\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day, bbs_time.month, bbs_time.year, bbs_user.user_name, bbs_status.encoding, bbs_status.width, bbs_config.msg_id[1],bbs_config.msg_id[2],bbs_config.msg_id[3],bbs_config.msg_id[4],bbs_config.msg_id[5],bbs_config.msg_id[6],bbs_config.msg_id[7],bbs_config.msg_id[8]);
 
         //cbm_open(4, 4, 7, "");
-        cbm_write(4,message,sizeof(message));
+        cbm_write(4, message, strlen(message));
         //cbm_close(4);
 }
 /*---------------------------------------------------------------------------*/
@@ -974,7 +974,7 @@ PROCESS_THREAD(movie_process, ev, data)
 
   	//shell_output_str(NULL, "\x93", "");
 
-	bbs_status.speed = 3;
+	bbs_status.speed = 4;
 
 	//shell_output_str(NULL,"", PETSCII_WHITE);
 	shell_prompt("\x05\n\rselect movie (1-20):");
