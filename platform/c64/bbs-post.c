@@ -29,7 +29,7 @@ extern BBS_SYSTEM_STATS bbs_sysstats;
 void end_post(void){
 	bbs_status.status=STATUS_LOCK;
 
-	if (bbs_status.echo==2){bbs_status.echo==1;}
+	if (bbs_status.echo==2){bbs_status.echo=1;}
 
 	//Turn on the screen again
 	poke(0xd011, peek(0xd011) | 0x10);
@@ -70,7 +70,7 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 
 	//process_exit(&bbs_read_process);
 	//process_exit(&bbs_setboard_process);
-	if (bbs_status.echo==2){bbs_status.echo==1;}
+	if (bbs_status.echo==2){bbs_status.echo=1;}
 	
 	shell_output_str(NULL,PETSCII_LOWER, PETSCII_WHITE);
 	//shell_output_str(&bbs_post_command, "Subject: \r\n", "");
