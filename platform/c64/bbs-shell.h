@@ -205,7 +205,7 @@ void shell_default_output(char *data1, int size1,
  *             shell_stop() when the session was successfully exited.
  *
  */
-void shell_exit(void);
+//void shell_exit(void);
 
 /**
  * @}

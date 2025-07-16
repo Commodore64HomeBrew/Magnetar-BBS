@@ -495,7 +495,8 @@ void bbs_unlock(void)
   bbs_status.status=STATUS_UNLOCK;
   bbs_locked=0;
   process_exit(&bbs_timer_process);
-  shell_exit();
+  //shell_exit();
+  s.state = STATE_CLOSE;
 }
 /*---------------------------------------------------------------------------*/
 int bbs_get_user(char *data)
@@ -1594,7 +1595,8 @@ shell_start(void)
   process_start(&bbs_timer_process, NULL);*/
   
   if(bbs_locked == 1) {
-    shell_exit(); //This disconnects the user!
+    //shell_exit(); //This disconnects the user!
+    s.state = STATE_CLOSE;
     log_message("\x96","busy");
   } else {
     //bbs_locked=1;

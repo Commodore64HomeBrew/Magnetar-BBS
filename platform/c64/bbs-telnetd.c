@@ -182,12 +182,12 @@ shell_default_output(char *str1, int len1,char *str2, int len2)
   buf_append(crnl, sizeof(crnl));
 }*/
 /*---------------------------------------------------------------------------*/
-void
+/*void
 shell_exit(void)
 {
   //log_message("\x9e", "shell exit");
   s.state = STATE_CLOSE;
-}
+}*/
 /*---------------------------------------------------------------------------*/
 /*void stream_data(void){
 
