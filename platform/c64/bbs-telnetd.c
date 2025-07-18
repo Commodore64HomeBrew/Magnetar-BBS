@@ -61,7 +61,7 @@ static char telnetd_reject_text[] =
 #endif
 
 
-
+/*
 #define STATE_NORMAL 0
 #define STATE_IAC    1
 #define STATE_WILL   2
@@ -69,6 +69,7 @@ static char telnetd_reject_text[] =
 #define STATE_DO     4
 #define STATE_DONT   5
 #define STATE_CLOSE  6
+*/
 
 #define TELNET_IAC   255
 #define TELNET_WILL  251
