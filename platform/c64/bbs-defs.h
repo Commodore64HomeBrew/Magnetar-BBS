@@ -67,6 +67,13 @@
 #define BBS_STRING_EDITH40 "---------+---------+---------+---------+"
 #define BBS_STRING_EDITH22 "----------+----------+"
 
+#define STATE_NORMAL 0
+#define STATE_IAC    1
+#define STATE_WILL   2
+#define STATE_WONT   3
+#define STATE_DO     4
+#define STATE_DONT   5
+#define STATE_CLOSE  6
 
 #define STATUS_UNLOCK	0
 #define STATUS_HANDLE	1
@@ -75,10 +82,10 @@
 #define STATUS_CONFUSR	4
 #define STATUS_STATS	5
 
-#define STATUS_LOCK		6
-#define STATUS_SUBJ		7
-#define STATUS_POST		8
-#define STATUS_READ		9
+#define STATUS_LOCK	6
+#define STATUS_SUBJ	7
+#define STATUS_POST	8
+#define STATUS_READ	9
 #define STATUS_STREAM  10
 
 
