@@ -328,6 +328,10 @@ void system_stats(void)
 
 	stats_days = bbs_status.width-2;
 
+	//This is temporary
+        shell_output_str(NULL,"\r\n\x0d\x9fThe sysop is travelling and the BBS filesystem has gone READ ONLY!!" , "");
+        shell_output_str(NULL,"\r\n\x0d\x9fNew posts will not be saved. I'm working on a temporary fix. Stay tuned." , "");
+	/*
 	//Chart title:
 	shell_output_str(NULL,"\r\n\x0d\x9fposts per day:" , "");
 	
@@ -408,7 +412,7 @@ void system_stats(void)
 
 	sprintf(message,"\r\n\x9etotal msgs:\x05 %hu", total_msgs);
 	shell_output_str(NULL, message, "");
-
+	*/
 
 
 	//THIS IS TESTING ONLY!!! REMOVE!!!
