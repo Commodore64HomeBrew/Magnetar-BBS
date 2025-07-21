@@ -330,7 +330,8 @@ void system_stats(void)
 
 	//This is temporary
         shell_output_str(NULL,"\r\n\x0d\x9fThe sysop is travelling and the BBS filesystem has gone READ ONLY!!" , "");
-        shell_output_str(NULL,"\r\n\x0d\x9fNew posts will not be saved. I'm working on a temporary fix. Stay tuned." , "");
+        shell_output_str(NULL,"\r\n\x0d\x9fNew posts will not be saved. I'm working on a way to post to RAM temporarily." , "");
+	shell_output_str(NULL,"\r\n\x0d\x9fSysop will be back on August 29th and BBS will be fully functional soon after." , "");
 	/*
 	//Chart title:
 	shell_output_str(NULL,"\r\n\x0d\x9fposts per day:" , "");
