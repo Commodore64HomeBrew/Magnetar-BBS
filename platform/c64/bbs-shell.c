@@ -308,7 +308,6 @@ void system_stats(void)
 	unsigned char day_colour[7] = { 0x1c, 0x81, 0x9e, 0x99, 0x9f, 0x9a, 0x9c };
 
 
-	//**********************************************************************
 	shell_output_str(NULL, "\r\n\x9clast callers:\r\n\r\n", "");
 
 	k=bbs_sysstats.caller_ptr+1;
@@ -320,8 +319,6 @@ void system_stats(void)
 	}
 
 
-	//**********************************************************************
-
 
 	//(d+=m<3?y--:y-2,23*m/9+d+4+y/4-y/100+y/400)%7  
 
@@ -329,16 +326,17 @@ void system_stats(void)
 	stats_days = bbs_status.width-2;
 
 	//This is temporary
-        shell_output_str(NULL,"\r\n\x0d\x9fThe sysop is travelling and the BBS filesystem has gone READ ONLY!!" , "");
-        shell_output_str(NULL,"\r\n\x0d\x9fNew posts will not be saved. I'm working on a way to post to RAM temporarily." , "");
-	shell_output_str(NULL,"\r\n\x0d\x9fSysop will be back on August 29th and BBS will be fully functional soon after." , "");
-	/*
+  //shell_output_str(NULL,"\r\n\x0d\x9fThe BBS filesystem is mysteriously working again! Alterus (me) is travelling and it went READ ONLY..." , "");
+  //shell_output_str(NULL,"\r\n\x0d\x9fI'll be back end of Aug and properly fix the SD2IEC then. Till then, fingers crossed it keeps working" , "");
+  //shell_output_str(NULL,"\r\n\x0d\x9fNew posts will not be saved. I'm working on a way to post to RAM temporarily." , "");
+	//shell_output_str(NULL,"\r\n\x0d\x9fSysop will be back on August 29th and BBS will be fully functional soon after." , "");
+
 	//Chart title:
 	shell_output_str(NULL,"\r\n\x0d\x9fposts per day:" , "");
-	
+
 	buf.bufmem[buf.ptr++]=ISO_cr;
 	buf.bufmem[buf.ptr++]=0x05;//Set color for axis
-	
+
 	//Set y-axis max number:
 	c=0x39;//9
 
@@ -380,7 +378,7 @@ void system_stats(void)
 		//Set colour for day of week:
 		buf.bufmem[buf.ptr++]=day_colour[d++];
 		if(d>6){d=0;}
-		
+
 		//Write the msg count bar:
 		for(j=0;j<bbs_sysstats.daily_msgs[day_ptr];++j){
 			buf.bufmem[buf.ptr++]= PETSCII_UP;
@@ -413,7 +411,6 @@ void system_stats(void)
 
 	sprintf(message,"\r\n\x9etotal msgs:\x05 %hu", total_msgs);
 	shell_output_str(NULL, message, "");
-	*/
 
 
 	//THIS IS TESTING ONLY!!! REMOVE!!!
@@ -425,7 +422,7 @@ void system_stats(void)
 	bbs_sysstats.daily_msgs[bbs_sysstats.day_ptr]=0;
 	*/
 }
-/*---------------------------------------------------------------------------*/
+//---------------------------------------------------------------------------
 void save_stats(void)
 {
 	unsigned char file[25];
@@ -622,6 +619,9 @@ void bbs_login()
 		user_msgs += bbs_usrstats.current_msg[k];
 	}
 	unread_msgs = total_msgs-user_msgs;
+
+  shell_output_str(NULL,"\r\n\x0d\x9fThe BBS filesystem is mysteriously working again! Alterus (me) is travelling and it went READ ONLY..." , "");
+  shell_output_str(NULL,"\r\n\x0d\x9fI'll be back end of Aug and properly fix the SD2IEC then. Till then, fingers crossed it keeps working" , "");
 
 	sprintf(message,"\r\n\x9eunread msgs:\x05 %hu", unread_msgs);
 	shell_output_str(NULL, message, "");
