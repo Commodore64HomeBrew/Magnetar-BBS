@@ -1092,6 +1092,9 @@ PROCESS_THREAD(shell_exit_process, ev, data)
   unsigned char prefix[20];
 
   PROCESS_BEGIN();
+	if(bbs_status.encoding==0){
+		shell_output_str(NULL, "\x8e", "");
+	}
 
 	if (bbs_status.encoding==0 && bbs_status.width > 22){
 		//Set the directory:
@@ -1114,6 +1117,8 @@ PROCESS_THREAD(shell_exit_process, ev, data)
 	}
 	
 	log_message("\x05logout: ", bbs_user.user_name);
+
+	PROCESS_PAUSE();
 
 	shell_stop();
 
