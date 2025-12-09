@@ -501,22 +501,23 @@ telnetd_appcall(void *ts)
         uip_poll()) {
       if(bbs_status.status == STATUS_STREAM){
 
-		//File streaming code
-	    sd_len = cbm_read(10, &sd_c, bbs_status.speed);
-	    if(sd_len>0){
-	      uip_send(&sd_c,bbs_status.speed);
-	      s.numsent = bbs_status.speed;
-	    }
-	    else{
-	      bbs_status.status = STATUS_LOCK;
-	    }
+	//File streaming code
+	sd_len = cbm_read(10, &sd_c, bbs_status.speed);
+	if(sd_len>0){
+		uip_send(&sd_c,bbs_status.speed);
+		s.numsent = bbs_status.speed;
+	}
+	else{
+		bbs_status.status = STATUS_LOCK;
+		//uip_send(&cr,1);
+	}
       }
       else{
         //Normal data send
-		sd_len = MIN(buf.ptr, uip_mss());
-		memcpy(uip_appdata, &buf.bufmem[0], sd_len);
-		uip_send(uip_appdata, sd_len);
-		s.numsent = sd_len;
+	sd_len = MIN(buf.ptr, uip_mss());
+	memcpy(uip_appdata, &buf.bufmem[0], sd_len);
+	uip_send(uip_appdata, sd_len);
+	s.numsent = sd_len;
       }
       if(s.numsent > 0) {
         timer_set(&silence_timer, BBS_IDLE_TIMEOUT);

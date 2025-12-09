@@ -326,10 +326,7 @@ void system_stats(void)
 	stats_days = bbs_status.width-2;
 
 	//This is temporary
-  //shell_output_str(NULL,"\r\n\x0d\x9fThe BBS filesystem is mysteriously working again! Alterus (me) is travelling and it went READ ONLY..." , "");
-  //shell_output_str(NULL,"\r\n\x0d\x9fI'll be back end of Aug and properly fix the SD2IEC then. Till then, fingers crossed it keeps working" , "");
-  //shell_output_str(NULL,"\r\n\x0d\x9fNew posts will not be saved. I'm working on a way to post to RAM temporarily." , "");
-	//shell_output_str(NULL,"\r\n\x0d\x9fSysop will be back on August 29th and BBS will be fully functional soon after." , "");
+	//shell_output_str(NULL,"\r\n\x0d\x9fThe filesystem is fixed!\r\n\Message posting works again!" , "");
 
 	//Chart title:
 	shell_output_str(NULL,"\r\n\x0d\x9fposts per day:" , "");
@@ -619,9 +616,6 @@ void bbs_login()
 		user_msgs += bbs_usrstats.current_msg[k];
 	}
 	unread_msgs = total_msgs-user_msgs;
-
-  shell_output_str(NULL,"\r\n\x0d\x9fThe BBS filesystem is mysteriously working again! Alterus (me) is travelling and it went READ ONLY..." , "");
-  shell_output_str(NULL,"\r\n\x0d\x9fI'll be back end of Aug and properly fix the SD2IEC then. Till then, fingers crossed it keeps working" , "");
 
 	sprintf(message,"\r\n\x9eunread msgs:\x05 %hu", unread_msgs);
 	shell_output_str(NULL, message, "");
@@ -980,7 +974,7 @@ PROCESS_THREAD(movie_process, ev, data)
 
   	//shell_output_str(NULL, "\x93", "");
 
-	bbs_status.speed = 4;
+	bbs_status.speed = 1;
 
 	//shell_output_str(NULL,"", PETSCII_WHITE);
 	shell_prompt("\x05\n\rselect movie (1-20):");
@@ -1015,49 +1009,56 @@ PROCESS_THREAD(movie_process, ev, data)
 
 		while(bbs_status.status == STATUS_STREAM) {
 
-			PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
-			
+			PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || bbs_status.status == STATUS_LOCK);
+			//PROCESS_WAIT_EVENT_UNTIL(bbs_status.status == STATUS_LOCK);	
 
 			
 			if (ev == shell_event_input) {
 
 				//temporary break...
 				bbs_status.status = STATUS_LOCK;
-				break;
+				//break;
+
 
 				/*
 				input = data;
 
-	            if(! strcmp(input->data1, "+")){
-	            	if(bbs_status.speed<MAX_STREAM_SPEED){
-	            		bbs_status.speed++;
-	            	}
-	            }
-	            else if(! strcmp(input->data1, "-")){
-	            	if(bbs_status.speed>1){
-	            		bbs_status.speed--;
-	            	}
-	            }
-	            else if(! strcmp(input->data1, "q")){
-	            	break;
-					//bbs_status.status = STATUS_LOCK;
-	            }
-				*/
+	            		if(! strcmp(input->data1, "+")){
+	            			if(bbs_status.speed<MAX_STREAM_SPEED){
+	            			bbs_status.speed++;
+	            			}
+	            		}
+	            		else if(! strcmp(input->data1, "-")){
+	            			if(bbs_status.speed>1){
+	            			bbs_status.speed--;
+	            			}
+	            		}
+	           	 	else if(! strcmp(input->data1, "q")){
+					bbs_status.status = STATUS_LOCK;
+					break;
+	            		}*/
+				
 			}
 		}
+
+
+
+        	s.numsent = 0;
+        	cbm_close(10);
+        	//Change boarder back to red
+        	bordercolor(2);
+        	//Turn on the screen again
+        	poke(0xd011, peek(0xd011) | 0x10);
 	}
 
-	s.numsent = 0;
-	cbm_close(10);
-	//Change boarder back to red
-	bordercolor(2);
-	//Turn on the screen again
-	poke(0xd011, peek(0xd011) | 0x10);
-	
+	shell_output_str(NULL, "the end\n\r", "");
+         //shell_output_str(NULL, "hit return to stop stream once playing\n\r", "");
+
 	set_prompt();
 	shell_prompt(bbs_status.prompt);
 
-	PROCESS_EXIT();
+
+	//PROCESS_EXIT();
 	PROCESS_END();
 
 }
@@ -1172,7 +1173,7 @@ PROCESS_THREAD(settime_process, ev, data)
       }
     }
   }
-  PROCESS_EXIT();
+  //PROCESS_EXIT();
   PROCESS_END();
 
 }

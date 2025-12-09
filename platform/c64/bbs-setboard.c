@@ -74,7 +74,7 @@ PROCESS_THREAD(bbs_setboard_process, ev, data)
   }
 
 
-  PROCESS_EXIT();
+  //PROCESS_EXIT();
    
   PROCESS_END();
 }
@@ -96,7 +96,7 @@ PROCESS_THREAD(bbs_nextboard_process, ev, data)
     bbs_sub_banner();
   }
 
-  PROCESS_EXIT();
+  //PROCESS_EXIT();
    
   PROCESS_END();
 }
@@ -117,7 +117,7 @@ PROCESS_THREAD(bbs_prevboard_process, ev, data)
     bbs_sub_banner();
   }
 
-  PROCESS_EXIT();
+  //PROCESS_EXIT();
    
   PROCESS_END();
 }

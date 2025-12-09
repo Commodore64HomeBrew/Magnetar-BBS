@@ -75,7 +75,7 @@ PROCESS_THREAD(bbs_read_process, ev, data)
     read_msg(num);
   }
 
-  PROCESS_EXIT();
+  //PROCESS_EXIT();
 
   PROCESS_END();
 }
@@ -101,7 +101,7 @@ PROCESS_THREAD(bbs_nextmsg_process, ev, data)
     read_msg(num);
   }
 
-  PROCESS_EXIT();
+  //PROCESS_EXIT();
    
   PROCESS_END();
 }
@@ -124,7 +124,7 @@ PROCESS_THREAD(bbs_prevmsg_process, ev, data)
     read_msg(num);
   }
 
-  PROCESS_EXIT();
+  //PROCESS_EXIT();
    
   PROCESS_END();
 
