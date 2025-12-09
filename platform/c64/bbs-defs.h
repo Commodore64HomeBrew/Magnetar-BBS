@@ -50,6 +50,7 @@
 #define BBS_BANNER_MENU        "menu"
 #define BBS_BANNER_SUBS        "subs"
 #define BBS_BANNER_INFO        "info"
+#define BBS_BANNER_MOVIE       "movie"
 
 
 #define BBS_STATS_DAYS			77

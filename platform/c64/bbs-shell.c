@@ -972,9 +972,12 @@ PROCESS_THREAD(movie_process, ev, data)
 
 	PROCESS_BEGIN();
 
-  	//shell_output_str(NULL, "\x93", "");
+        bbs_status.speed = 2;
 
-	bbs_status.speed = 1;
+  	shell_output_str(NULL, "\x93\x8e", "");
+	PROCESS_PAUSE();
+
+	bbs_banner(board.sys_prefix, BBS_BANNER_MOVIE, bbs_status.encoding_suffix, board.sys_device, 0);
 
 	//shell_output_str(NULL,"", PETSCII_WHITE);
 	shell_prompt("\x05\n\rselect movie (1-20):");
@@ -999,7 +1002,9 @@ PROCESS_THREAD(movie_process, ev, data)
 		//Blank the screen to speed things up
 		poke(0xd011, peek(0xd011) & 0xef);
 
-
+		//Clear screen and UPPER case
+        	shell_output_str(NULL, "\x93", "\x8e");
+		PROCESS_PAUSE();
 
 		//cbm_open(10, 8, 10, "//m/:1");
 		cbm_open(10, 8, 10, file);
@@ -1007,7 +1012,7 @@ PROCESS_THREAD(movie_process, ev, data)
 		bbs_status.status = STATUS_STREAM;
 
 
-		while(bbs_status.status == STATUS_STREAM) {
+		//while(bbs_status.status == STATUS_STREAM) {
 
 			PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || bbs_status.status == STATUS_LOCK);
 			//PROCESS_WAIT_EVENT_UNTIL(bbs_status.status == STATUS_LOCK);	
@@ -1017,6 +1022,7 @@ PROCESS_THREAD(movie_process, ev, data)
 
 				//temporary break...
 				bbs_status.status = STATUS_LOCK;
+				PROCESS_PAUSE();
 				//break;
 
 
@@ -1039,7 +1045,7 @@ PROCESS_THREAD(movie_process, ev, data)
 	            		}*/
 				
 			}
-		}
+		//}
 
 
 
@@ -1051,12 +1057,13 @@ PROCESS_THREAD(movie_process, ev, data)
         	poke(0xd011, peek(0xd011) | 0x10);
 	}
 
-	shell_output_str(NULL, "the end\n\r", "");
+	PROCESS_PAUSE();
+
+	//shell_output_str(NULL, "the end\n\r", "");
          //shell_output_str(NULL, "hit return to stop stream once playing\n\r", "");
 
 	set_prompt();
-	shell_prompt(bbs_status.prompt);
-
+	//shell_prompt(bbs_status.prompt);
 
 	//PROCESS_EXIT();
 	PROCESS_END();
