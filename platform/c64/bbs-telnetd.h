@@ -53,5 +53,7 @@ int buf_append(const char *data, int len);
 unsigned int buf_free_bytes(void);
 /* Append one raw byte to the telnet output queue; returns 0 on success, -1 if full. */
 int buf_putc_raw(unsigned char c);
+/* Move pending data to start of bufmem so [0..used) is linear (optional before bulk writes). */
+void buf_compact(void);
 
 #endif /* TELNETD_H_ */

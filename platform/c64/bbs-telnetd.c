@@ -104,29 +104,59 @@ BBS_BUFFER buf;
 
 /*---------------------------------------------------------------------------*/
 static void
-buf_init()
+buf_init(void)
 {
-  buf.ptr = 0;
+  buf.head = 0;
+  buf.used = 0;
   buf.size = BBS_BUFFER_SIZE;
 }
+
+/*---------------------------------------------------------------------------*/
+void
+buf_compact(void)
+{
+  if(buf.head == 0) {
+    return;
+  }
+  if(buf.used > 0) {
+    memmove(buf.bufmem, &buf.bufmem[buf.head], buf.used);
+  }
+  buf.head = 0;
+}
+
+/*---------------------------------------------------------------------------*/
+static void
+buf_ack_sent(unsigned int n)
+{
+  if(n > buf.used) {
+    n = buf.used;
+  }
+  buf.head = (buf.head + n) % buf.size;
+  buf.used -= n;
+}
+
 /*---------------------------------------------------------------------------*/
 unsigned int
 buf_free_bytes(void)
 {
-  if(buf.ptr >= buf.size) {
+  if(buf.used >= buf.size) {
     return 0;
   }
-  return (unsigned int)(buf.size - buf.ptr);
+  return (unsigned int)(buf.size - buf.used);
 }
 
 /*---------------------------------------------------------------------------*/
 int
 buf_putc_raw(unsigned char c)
 {
-  if(buf.ptr >= buf.size) {
+  unsigned int pos;
+
+  if(buf.used >= buf.size) {
     return -1;
   }
-  buf.bufmem[buf.ptr++] = c;
+  pos = (buf.head + buf.used) % buf.size;
+  buf.bufmem[pos] = c;
+  ++buf.used;
   return 0;
 }
 
@@ -134,23 +164,41 @@ buf_putc_raw(unsigned char c)
 int
 buf_append(const char *data, int len)
 {
-  //struct telnetd_buf *buf;
   int copylen;
   unsigned int room;
+  unsigned int dst0;
+  unsigned int contig;
+  unsigned int first_part;
 
-  if(buf.ptr > buf.size) {
-    buf.ptr = buf.size;
+  if(buf.used > buf.size) {
+    buf.used = buf.size;
   }
   room = buf_free_bytes();
-  if(room == 0) {
+  if(room == 0 || len <= 0) {
     return 0;
   }
 
-  //PRINTF("buf_append len %d (%d) '%.*s'\n", len, buf->ptr, len, data);
   copylen = MIN(len, (int)room);
-  memcpy(&buf.bufmem[buf.ptr], data, copylen);
-  if(bbs_status.encoding==1){petscii_to_ascii(&buf.bufmem[buf.ptr], copylen);}
-  buf.ptr += copylen;
+  dst0 = (buf.head + buf.used) % buf.size;
+  contig = buf.size - dst0;
+
+  if((unsigned int)copylen <= contig) {
+    memcpy(&buf.bufmem[dst0], data, (unsigned int)copylen);
+    if(bbs_status.encoding == 1) {
+      petscii_to_ascii((char *)&buf.bufmem[dst0], (unsigned int)copylen);
+    }
+  } else {
+    first_part = contig;
+    memcpy(&buf.bufmem[dst0], data, first_part);
+    if(bbs_status.encoding == 1) {
+      petscii_to_ascii((char *)&buf.bufmem[dst0], first_part);
+    }
+    memcpy(buf.bufmem, data + first_part, (unsigned int)copylen - first_part);
+    if(bbs_status.encoding == 1) {
+      petscii_to_ascii((char *)buf.bufmem, (unsigned int)copylen - first_part);
+    }
+  }
+  buf.used += (unsigned int)copylen;
 
   return copylen;
 }
@@ -160,21 +208,6 @@ buf_copyto(char *to, int len)
 {
   memcpy(to, &buf.bufmem[0], len);
 }*/
-/*---------------------------------------------------------------------------*/
-static void
-buf_pop(int len)
-{
-  int poplen;
-
-  //PRINTF("buf_pop len %d (%d)\n", len, buf->ptr);
-  poplen = MIN(len, (int)buf.ptr);
-  memcpy(&buf.bufmem[0], &buf.bufmem[poplen], buf.ptr - (unsigned int)poplen);
-  buf.ptr -= (unsigned int)poplen;
-  if(buf.ptr > buf.size) {
-    buf.ptr = buf.size;
-  }
-}
-
 /*---------------------------------------------------------------------------*/
 void
 telnetd_quit(void)
@@ -274,10 +307,10 @@ acked(void)
 senddata(void)
 {
   int len;
-  len = MIN(buf.ptr, uip_mss());
-  memcpy(uip_appdata, &buf.bufmem[0], len);
-  uip_send(uip_appdata, len);
-  s.numsent = len;
+  len = MIN((int)buf.used, uip_mss());
+  memcpy(uip_appdata, &buf.bufmem[buf.head], (unsigned int)len);
+  uip_send(uip_appdata, (unsigned int)len);
+  s.numsent = (unsigned int)len;
 }*/
 /*---------------------------------------------------------------------------*/
 static void
@@ -520,8 +553,7 @@ telnetd_appcall(void *ts)
     }
     if(uip_acked()) {
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
-      //acked();
-      buf_pop(s.numsent); //Moved from acked function... seemed redundent
+      buf_ack_sent((unsigned int)s.numsent);
     }
     if(uip_newdata()) {
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
@@ -546,11 +578,26 @@ telnetd_appcall(void *ts)
 	}
       }
       else{
-        //Normal data send
-	sd_len = MIN(buf.ptr, uip_mss());
-	memcpy(uip_appdata, &buf.bufmem[0], sd_len);
-	uip_send(uip_appdata, sd_len);
-	s.numsent = sd_len;
+        /* Ring: send one contiguous run from head (up to MSS, up to wrap). */
+        if(buf.used == 0) {
+          sd_len = 0;
+        } else {
+          unsigned int mss;
+          unsigned int first;
+
+          mss = (unsigned int)uip_mss();
+          first = buf.size - buf.head;
+          sd_len = buf.used;
+          if(sd_len > mss) {
+            sd_len = mss;
+          }
+          if(sd_len > first) {
+            sd_len = first;
+          }
+          memcpy(uip_appdata, &buf.bufmem[buf.head], sd_len);
+        }
+        uip_send(uip_appdata, sd_len);
+        s.numsent = sd_len;
       }
       if(s.numsent > 0) {
         timer_set(&silence_timer, BBS_IDLE_TIMEOUT);

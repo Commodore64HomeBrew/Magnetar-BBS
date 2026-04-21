@@ -455,8 +455,8 @@ void system_stats(void)
 	if(buf_putc_raw(ISO_cr) < 0) {
 		goto stats_chart_done;
 	}
-	if(buf.ptr < buf.size) {
-		buf.bufmem[buf.ptr] = 0;
+	if(buf.used < buf.size) {
+		buf.bufmem[(buf.head + buf.used) % buf.size] = 0;
 	}
 
 stats_chart_done:

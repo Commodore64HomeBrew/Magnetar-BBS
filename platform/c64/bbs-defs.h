@@ -189,7 +189,8 @@ typedef struct {
 
 typedef struct {
   unsigned char bufmem[BBS_BUFFER_SIZE];
-  unsigned int ptr;
+  unsigned int head; /* next byte to send (physical index) */
+  unsigned int used; /* pending outbound bytes (may wrap) */
   unsigned int size;
 } BBS_BUFFER;
 

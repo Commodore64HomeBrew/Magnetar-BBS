@@ -70,7 +70,8 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
   log_message("\x9fread: ", file);
 
   //log_message("[debug] ", file);
-  ptr = (unsigned short)buf.ptr;
+  buf_compact();
+  ptr = (unsigned short)buf.used;
 
   sprintf(file, "%s:%s%s",filePrefix, szBannerFile, fileSuffix);
 
@@ -91,15 +92,16 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
     if(n < 0) {
       n = 0;
     }
-    buf.ptr = ptr + (unsigned int)n;
+    buf.used = (unsigned int)ptr + (unsigned int)n;
 
     if(bbs_status.encoding == 1) {
-      petscii_to_ascii((char *)&buf.bufmem[ptr], (unsigned int)(buf.ptr - ptr));
+      petscii_to_ascii((char *)&buf.bufmem[ptr],
+		       (unsigned int)(buf.used - (unsigned int)ptr));
     }
 
     if(buf_free_bytes() >= 2u) {
-      buf.bufmem[buf.ptr++] = ISO_cr;
-      buf.bufmem[buf.ptr++] = ISO_nl;
+      (void)buf_putc_raw(ISO_cr);
+      (void)buf_putc_raw(ISO_nl);
     }
   } else {
     unsigned int room;
@@ -115,15 +117,15 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
     if(n < 0) {
       n = 0;
     }
-    buf.ptr = (unsigned int)ptr + 2u + (unsigned int)n;
+    buf.used = (unsigned int)ptr + 2u + (unsigned int)n;
   }
 
   if((unsigned int)ptr + 1u < buf.size) {
     buf.bufmem[ptr] = ISO_cr;
     buf.bufmem[ptr + 1] = ISO_nl;
   }
-  if(buf.ptr > buf.size) {
-    buf.ptr = buf.size;
+  if(buf.used > buf.size) {
+    buf.used = buf.size;
   }
 
   
@@ -135,7 +137,7 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
     width = bbs_status.width;
     col=0;
     preCol=0;
-    for (i=ptr; i<buf.ptr; i++) {
+    for (i=ptr; i<(unsigned short)buf.used; i++) {
 
       c=buf.bufmem[i];
 
