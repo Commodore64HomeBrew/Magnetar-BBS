@@ -17,7 +17,6 @@
 #include <conio.h>
 #include <em.h>
 
-BBS_EM_REC bbs_em;
 extern BBS_STATUS_REC bbs_status;
 extern BBS_BOARD_REC board;
 
@@ -56,8 +55,6 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
   //unsigned char *file_buffer;
   //char file_buffer[BBS_BUFFER_SIZE];
 
-  unsigned short fsize;
-  unsigned short siRet=0, len=0;
   unsigned short i=0, j=0;
   unsigned short line=0;
   unsigned short col, preCol;
@@ -73,33 +70,61 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
   log_message("\x9fread: ", file);
 
   //log_message("[debug] ", file);
-  ptr = buf.ptr;
-
-  fsize = BBS_BUFFER_SIZE-ptr;
-
-
+  ptr = (unsigned short)buf.ptr;
 
   sprintf(file, "%s:%s%s",filePrefix, szBannerFile, fileSuffix);
 
   cbm_open(10, device, 10, file);
 
-  if (bbs_status.status == STATUS_READ){
-    buf.ptr += cbm_read(10, &buf.bufmem[ptr] , fsize);
-    
-    if(bbs_status.encoding==1){
-      petscii_to_ascii(&buf.bufmem[ptr], buf.ptr-ptr);
+  if(bbs_status.status == STATUS_READ) {
+    unsigned int room;
+    int n;
+
+    /* Leave space for trailing CR+NL after file data. */
+    room = buf_free_bytes();
+    if(room > 2u) {
+      room -= 2u;
+    } else {
+      room = 0;
+    }
+    n = cbm_read(10, &buf.bufmem[ptr], (unsigned short)room);
+    if(n < 0) {
+      n = 0;
+    }
+    buf.ptr = ptr + (unsigned int)n;
+
+    if(bbs_status.encoding == 1) {
+      petscii_to_ascii((char *)&buf.bufmem[ptr], (unsigned int)(buf.ptr - ptr));
     }
 
-    buf.bufmem[buf.ptr++]= ISO_cr;
-    buf.bufmem[buf.ptr]= ISO_nl;
+    if(buf_free_bytes() >= 2u) {
+      buf.bufmem[buf.ptr++] = ISO_cr;
+      buf.bufmem[buf.ptr++] = ISO_nl;
+    }
+  } else {
+    unsigned int room;
+    int n;
 
-  }
-  else{
-    buf.ptr += cbm_read(10, &buf.bufmem[ptr+2] , fsize) + 2;
+    /* File payload starts at ptr+2; ptr..ptr+1 reserved for CR+NL below. */
+    if(ptr + 2u >= buf.size) {
+      n = 0;
+    } else {
+      room = buf.size - (unsigned int)ptr - 2u;
+      n = cbm_read(10, &buf.bufmem[ptr + 2], (unsigned short)room);
+    }
+    if(n < 0) {
+      n = 0;
+    }
+    buf.ptr = (unsigned int)ptr + 2u + (unsigned int)n;
   }
 
-  buf.bufmem[ptr]= ISO_cr;
-  buf.bufmem[ptr+1]= ISO_nl;
+  if((unsigned int)ptr + 1u < buf.size) {
+    buf.bufmem[ptr] = ISO_cr;
+    buf.bufmem[ptr + 1] = ISO_nl;
+  }
+  if(buf.ptr > buf.size) {
+    buf.ptr = buf.size;
+  }
 
   
   cbm_close(10);
@@ -175,30 +200,31 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
 }
 
 /*---------------------------------------------------------------------------*/
-const char * file_path(char *file, unsigned short num)
+void
+file_path(const char *file, unsigned short num, char *out, unsigned char outsz)
 {
-  unsigned char sub_num_prefix[20];
-    
-    if(board.dir_boost==1){
+  if(out == NULL || outsz < 2) {
+    return;
+  }
 
-      if(num<10){
-        sprintf(sub_num_prefix, "%s%d/0/0/0/%c/", board.subs_prefix,bbs_status.board_id, file[2]);
-      }
-      else if(num<100){
-        sprintf(sub_num_prefix, "%s%d/0/0/%c/%c/", board.subs_prefix,bbs_status.board_id, file[2], file[3]);
-      }
-      else if(num<1000){
-        sprintf(sub_num_prefix, "%s%d/0/%c/%c/%c/", board.subs_prefix,bbs_status.board_id, file[2], file[3],file[4]);
-      }
-      else if(num<10000){
-        sprintf(sub_num_prefix, "%s%d/%c/%c/%c/%c/", board.subs_prefix,bbs_status.board_id, file[2], file[3],file[4],file[5]);
-      }
-    }
-    else {
-      sprintf(sub_num_prefix, "%s%d/", board.subs_prefix,bbs_status.board_id);
-    }
+  if(board.dir_boost == 1) {
 
-    return sub_num_prefix;
+    if(num < 10) {
+      sprintf(out, "%s%d/0/0/0/%c/", board.subs_prefix, bbs_status.board_id, file[2]);
+    } else if(num < 100) {
+      sprintf(out, "%s%d/0/0/%c/%c/", board.subs_prefix, bbs_status.board_id,
+              file[2], file[3]);
+    } else if(num < 1000) {
+      sprintf(out, "%s%d/0/%c/%c/%c/", board.subs_prefix, bbs_status.board_id,
+              file[2], file[3], file[4]);
+    } else {
+      /* num >= 1000 (including >= 10000): deepest boost layout. */
+      sprintf(out, "%s%d/%c/%c/%c/%c/", board.subs_prefix, bbs_status.board_id,
+              file[2], file[3], file[4], file[5]);
+    }
+  } else {
+    sprintf(out, "%s%d/", board.subs_prefix, bbs_status.board_id);
+  }
 }
 
 

@@ -110,14 +110,44 @@ buf_init()
   buf.size = BBS_BUFFER_SIZE;
 }
 /*---------------------------------------------------------------------------*/
+unsigned int
+buf_free_bytes(void)
+{
+  if(buf.ptr >= buf.size) {
+    return 0;
+  }
+  return (unsigned int)(buf.size - buf.ptr);
+}
+
+/*---------------------------------------------------------------------------*/
+int
+buf_putc_raw(unsigned char c)
+{
+  if(buf.ptr >= buf.size) {
+    return -1;
+  }
+  buf.bufmem[buf.ptr++] = c;
+  return 0;
+}
+
+/*---------------------------------------------------------------------------*/
 int
 buf_append(const char *data, int len)
 {
   //struct telnetd_buf *buf;
   int copylen;
+  unsigned int room;
+
+  if(buf.ptr > buf.size) {
+    buf.ptr = buf.size;
+  }
+  room = buf_free_bytes();
+  if(room == 0) {
+    return 0;
+  }
 
   //PRINTF("buf_append len %d (%d) '%.*s'\n", len, buf->ptr, len, data);
-  copylen = MIN(len, buf.size - buf.ptr);
+  copylen = MIN(len, (int)room);
   memcpy(&buf.bufmem[buf.ptr], data, copylen);
   if(bbs_status.encoding==1){petscii_to_ascii(&buf.bufmem[buf.ptr], copylen);}
   buf.ptr += copylen;
@@ -137,9 +167,12 @@ buf_pop(int len)
   int poplen;
 
   //PRINTF("buf_pop len %d (%d)\n", len, buf->ptr);
-  poplen = MIN(len, buf.ptr);
-  memcpy(&buf.bufmem[0], &buf.bufmem[poplen], buf.ptr - poplen);
-  buf.ptr -= poplen;
+  poplen = MIN(len, (int)buf.ptr);
+  memcpy(&buf.bufmem[0], &buf.bufmem[poplen], buf.ptr - (unsigned int)poplen);
+  buf.ptr -= (unsigned int)poplen;
+  if(buf.ptr > buf.size) {
+    buf.ptr = buf.size;
+  }
 }
 
 /*---------------------------------------------------------------------------*/
@@ -266,7 +299,7 @@ get_char(uint8_t c)
 				--s.bufptr;
 				s.buf[(int)s.bufptr] = 0;
         
-        buf.bufmem[buf.ptr++]=c;
+        (void)buf_putc_raw(c);
 
         if(col_num>0){--col_num;}
 			}
@@ -288,8 +321,8 @@ get_char(uint8_t c)
 				if(c==PETSCII_SPACE)
       			{
 					//jump to next line
-          buf.bufmem[buf.ptr++]=c;
-          buf.bufmem[buf.ptr++]=cr;
+          (void)buf_putc_raw(c);
+          (void)buf_putc_raw(cr);
 
 					col_num=0;
 				}
@@ -298,27 +331,27 @@ get_char(uint8_t c)
 					i=(int)s.bufptr;
 					//Erase the word
 					while(s.buf[i]!=PETSCII_SPACE && i>0){
-            buf.bufmem[buf.ptr++]=dl;
+            (void)buf_putc_raw(dl);
 						--i;
 					}
 					++i;
 
 					//Jump to new line
-          buf.bufmem[buf.ptr++]=cr;
+          (void)buf_putc_raw(cr);
 					//Set the column number to match wrapped word
 					col_num=(int)s.bufptr-i;
 
 					//Rewrite the word
 					for(n=i;n<(int)s.bufptr;++n){
-            buf.bufmem[buf.ptr++]=s.buf[n];
+            (void)buf_putc_raw((unsigned char)s.buf[n]);
 					}
 					//Add the new character to the word.
-          buf.bufmem[buf.ptr++]=c;
+          (void)buf_putc_raw(c);
 				}
 			}
 		}
 		else{	
-      buf.bufmem[buf.ptr++]=c;
+      (void)buf_putc_raw(c);
       //Only advance column counter if char is alphanumeric
       if ((c > 0x1F && c < 0x80) || (c > 0x9F)){
         ++col_num;
@@ -326,7 +359,7 @@ get_char(uint8_t c)
 		}
 	}
 	else if(bbs_status.echo==2){
-    buf.bufmem[buf.ptr++]=c;
+    (void)buf_putc_raw(c);
 	  ++col_num;
 	}
 

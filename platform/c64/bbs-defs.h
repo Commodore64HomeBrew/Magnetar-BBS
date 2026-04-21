@@ -22,12 +22,20 @@
 #define BBS_80_COL             	78
 #define BBS_40_COL	           	38
 #define BBS_22_COL	           	20
+/* One telnet line + NUL; 128 is enough for BBS commands and wrapped post lines. */
 #define TELNETD_CONF_LINELEN 	 255
 #define TELNETD_CONF_NUMLINES 	25
 
-#define MAX_STREAM_SPEED        20
+/* Stream chunk size; movie UI caps speed at 10. */
+#define MAX_STREAM_SPEED        10
 
+/* Outbound queue; must exceed uip MSS (~536) for smooth output. */
 #define BBS_BUFFER_SIZE    	1500
+/* In-memory post body (lines appended until /s); separate from wire buffer. */
+#define BBS_POST_BUFFER_SIZE    1500
+
+/* Min size for buffers passed to file_path() (boost paths need headroom). */
+#define BBS_FILE_PATH_BUFLEN    48
 
 #define BBS_SESSION_TIMEOUT (CLOCK_SECOND * 3600)
 #define BBS_LOGIN_TIMEOUT   (CLOCK_SECOND * 60)
@@ -53,6 +61,7 @@
 #define BBS_BANNER_MOVIE       "movie"
 
 
+/* Must match on-disk bbs-stats layout; do not shrink without a migration path. */
 #define BBS_STATS_DAYS			77
 #define BBS_STATS_USRS			5
 #define BBS_STATS_FILE         "bbs-stats"
@@ -179,14 +188,9 @@ typedef struct {
 
 
 typedef struct {
-  unsigned short file[10][2];
-} BBS_EM_REC;
-
-
-typedef struct {
   unsigned char bufmem[BBS_BUFFER_SIZE];
-  unsigned long ptr;
-  unsigned long size;
+  unsigned int ptr;
+  unsigned int size;
 } BBS_BUFFER;
 
 typedef struct {

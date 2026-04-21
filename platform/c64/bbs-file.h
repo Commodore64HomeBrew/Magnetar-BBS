@@ -12,9 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <cbm.h>
-
-#include "bbs-shell.h"
-#include "bbs-file.h"
 #include <conio.h>
 #include <em.h>
 
@@ -35,16 +32,15 @@ void bbs_banner(unsigned char filePrefix[10], unsigned char szBannerFile[12], un
 
 //void stream_file(void);
 
-const char * file_path(char *file, unsigned short num);
+/* Writes directory prefix for message num into out (NUL-terminated). outsz must be >= BBS_FILE_PATH_BUFLEN. */
+void file_path(const char *file, unsigned short num, char *out, unsigned char outsz);
 
 //void em_load(unsigned char filePrefix[10], unsigned char szBannerFile[12], unsigned char fileSuffix[3], unsigned char device, unsigned short file_num);
 //void em_out(unsigned short file_num);
 
 //int ssWriteSEQFile(ST_FILE *pstFile, short ssMode, void *pvBuffer, unsigned int uiBuffSize);
-//int ssReadSEQFile(ST_FILE *pstFile, void *pvBuffer, unsigned int uiBuffSize);*/
+//int ssReadSEQFile(ST_FILE *pstFile, void *pvBuffer, unsigned int uiBuffSize);
 //int ssStreamSEQFile(ST_FILE *pstFile, void *pvBuffer, unsigned int uiBuffSize);
 //int ssWritePRGFile(ST_FILE *pstFile, void *pvBuffer, unsigned int uiBuffSize);
-int siFileExists(ST_FILE *pstFile);
 //unsigned char ucCheckDeviceNo(unsigned char *ucDeviceNo);
-int siDriveStatus(ST_FILE *pstFile);
 #endif

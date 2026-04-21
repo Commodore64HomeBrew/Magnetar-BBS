@@ -69,7 +69,6 @@
 #define __SHELL_H__
 
 #include "sys/process.h"
-#include "bbs-file.h"
 /**
  * \brief      Holds a information about a shell command
  *

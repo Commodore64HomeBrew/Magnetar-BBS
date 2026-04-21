@@ -25,8 +25,7 @@ extern BBS_USER_STATS bbs_usrstats;
 
 int read_msg(unsigned short num)
 {
-    //short level_1, level_2;
-    char sub_num_prefix[20];
+    char sub_num_prefix[BBS_FILE_PATH_BUFLEN];
     ST_FILE file;
 
     shell_output_str(NULL,PETSCII_LOWER, PETSCII_WHITE);
@@ -36,8 +35,8 @@ int read_msg(unsigned short num)
     set_prompt();
     bbs_status.status=STATUS_READ;
 
-    strcpy(sub_num_prefix, file_path(file.szFileName, num));
-    bbs_banner(sub_num_prefix, file.szFileName, "", board.subs_device, bbs_status.wrap);
+    file_path(file.szFileName, num, sub_num_prefix, sizeof(sub_num_prefix));
+    bbs_banner((unsigned char *)sub_num_prefix, file.szFileName, "", board.subs_device, bbs_status.wrap);
 
 
     bbs_status.status=STATUS_LOCK;

@@ -24,8 +24,9 @@
 
 LIST(commands);
 
-//Month names:                   J   F   M   A   M   J   J   A   S   O   N   D
-unsigned char month_days[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+/* ROM: days per month (not modified). */
+static const unsigned char month_days[12] =
+    { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
 int shell_event_input;
 static struct process *front_process;
@@ -109,10 +110,10 @@ void set_prompt(void)
 	
 	if(next_msg > bbs_config.msg_id[bbs_status.board_id]){
 		if(bbs_status.encoding==0){
-			sprintf(bbs_status.prompt, "\r\n\x12\x9fsub:\x05%d\x1cmsgs:\x05%d\x92\x9f>\x05 ", bbs_status.board_id, bbs_config.msg_id[bbs_status.board_id], next_msg);
+			sprintf(bbs_status.prompt, "\r\n\x12\x9fsub:\x05%d\x1cmsgs:\x05%d\x92\x9f>\x05 ", bbs_status.board_id, bbs_config.msg_id[bbs_status.board_id]);
 		}
 		else{
-			sprintf(bbs_status.prompt, "\r\nsub:%d msgs:%d> ", bbs_status.board_id, bbs_config.msg_id[bbs_status.board_id], next_msg);
+			sprintf(bbs_status.prompt, "\r\nsub:%d msgs:%d> ", bbs_status.board_id, bbs_config.msg_id[bbs_status.board_id]);
 		}
 	}
 	else{
@@ -304,8 +305,9 @@ void system_stats(void)
 	unsigned char message[40];
 	unsigned char day_ptr, stats_days, day_offset;
 	unsigned char j,k,c,d;
-	//                              red   oran  yell  gree  cyan  ltbl  purp
-	unsigned char day_colour[7] = { 0x1c, 0x81, 0x9e, 0x99, 0x9f, 0x9a, 0x9c };
+	unsigned short dm;
+	static const unsigned char day_colour[7] =
+	    { 0x1c, 0x81, 0x9e, 0x99, 0x9f, 0x9a, 0x9c };
 
 
 	shell_output_str(NULL, "\r\n\x9clast callers:\r\n\r\n", "");
@@ -323,7 +325,10 @@ void system_stats(void)
 	//(d+=m<3?y--:y-2,23*m/9+d+4+y/4-y/100+y/400)%7  
 
 
-	stats_days = bbs_status.width-2;
+	stats_days = bbs_status.width - 2;
+	if(stats_days > BBS_STATS_DAYS) {
+		stats_days = BBS_STATS_DAYS;
+	}
 
 	//This is temporary
 	//shell_output_str(NULL,"\r\n\x0d\x9fThe filesystem is fixed!\r\n\Message posting works again!" , "");
@@ -331,33 +336,61 @@ void system_stats(void)
 	//Chart title:
 	shell_output_str(NULL,"\r\n\x0d\x9fposts per day:" , "");
 
-	buf.bufmem[buf.ptr++]=ISO_cr;
-	buf.bufmem[buf.ptr++]=0x05;//Set color for axis
+	if(buf_putc_raw(ISO_cr) < 0) {
+		goto stats_chart_done;
+	}
+	if(buf_putc_raw(0x05) < 0) {
+		goto stats_chart_done;
+	} /* axis colour */
 
 	//Set y-axis max number:
-	c=0x39;//9
+	c=0x39;/*9*/
 
 	//Draw the y-axis:
 	for(k=0;k<9;k++){
-		buf.bufmem[buf.ptr++]=c--;
-		buf.bufmem[buf.ptr++]=0xab;//y-axis character
-		buf.bufmem[buf.ptr++]=ISO_cr;
+		if(buf_putc_raw(c--) < 0) {
+			goto stats_chart_done;
+		}
+		if(buf_putc_raw(0xab) < 0) {
+			goto stats_chart_done;
+		}
+		if(buf_putc_raw(ISO_cr) < 0) {
+			goto stats_chart_done;
+		}
 	}
 	//Draw the x-axis:
-	buf.bufmem[buf.ptr++]=PETSCII_RIGHT;
-	buf.bufmem[buf.ptr++]=0xed;//bottom left corner character
+	if(buf_putc_raw(PETSCII_RIGHT) < 0) {
+		goto stats_chart_done;
+	}
+	if(buf_putc_raw(0xed) < 0) {
+		goto stats_chart_done;
+	}
 	for(k=0;k<stats_days;k++){
-		buf.bufmem[buf.ptr++]=0xb1;//x-axis character
+		if(buf_putc_raw(0xb1) < 0) {
+			goto stats_chart_done;
+		}
 	}
 
 
 	//Put the cursor in position to plot the bars:
-	buf.bufmem[buf.ptr++]=ISO_cr;
-	buf.bufmem[buf.ptr++]=PETSCII_UP;
-	buf.bufmem[buf.ptr++]=PETSCII_RIGHT;
-	buf.bufmem[buf.ptr++]=PETSCII_RIGHT;
-	buf.bufmem[buf.ptr++]=PETSCII_RIGHT;
-	buf.bufmem[buf.ptr++]=PETSCII_REVON;
+	if(buf_putc_raw(ISO_cr) < 0) {
+		goto stats_chart_done;
+	}
+	if(buf_putc_raw(PETSCII_UP) < 0) {
+		goto stats_chart_done;
+	}
+	if(buf_putc_raw(PETSCII_RIGHT) < 0) {
+		goto stats_chart_done;
+	}
+	if(buf_putc_raw(PETSCII_RIGHT) < 0) {
+		goto stats_chart_done;
+	}
+	if(buf_putc_raw(PETSCII_RIGHT) < 0) {
+		goto stats_chart_done;
+	}
+	if(buf_putc_raw(PETSCII_REVON) < 0) {
+		goto stats_chart_done;
+	}
 
 	//Set the day pointer:
 	day_offset = BBS_STATS_DAYS - stats_days + 1;
@@ -373,22 +406,42 @@ void system_stats(void)
 	d=0;
 	for(k=0;k<stats_days;k++){
 		//Set colour for day of week:
-		buf.bufmem[buf.ptr++]=day_colour[d++];
+		if(buf_putc_raw(day_colour[d++]) < 0) {
+			goto stats_chart_done;
+		}
 		if(d>6){d=0;}
 
+		/* Cap bar height so one day cannot exhaust the queue. */
+		dm = bbs_sysstats.daily_msgs[day_ptr];
+		if(dm > 28) {
+			dm = 28;
+		}
+
 		//Write the msg count bar:
-		for(j=0;j<bbs_sysstats.daily_msgs[day_ptr];++j){
-			buf.bufmem[buf.ptr++]= PETSCII_UP;
-			buf.bufmem[buf.ptr++]= PETSCII_LEFT;
-			buf.bufmem[buf.ptr++]= 0xe3;//block
+		for(j=0;j<dm;++j){
+			if(buf_putc_raw(PETSCII_UP) < 0) {
+				goto stats_chart_done;
+			}
+			if(buf_putc_raw(PETSCII_LEFT) < 0) {
+				goto stats_chart_done;
+			}
+			if(buf_putc_raw(0xe3) < 0) {
+				goto stats_chart_done;
+			}
 		}
 
 		//Change colour to black and get ready for next bar:
-		buf.bufmem[buf.ptr++]=0x90;//black
-		for(j=0;j<bbs_sysstats.daily_msgs[day_ptr];++j){
-			buf.bufmem[buf.ptr++]=PETSCII_DOWN;
+		if(buf_putc_raw(0x90) < 0) {
+			goto stats_chart_done;
 		}
-		buf.bufmem[buf.ptr++]=PETSCII_RIGHT;
+		for(j=0;j<dm;++j){
+			if(buf_putc_raw(PETSCII_DOWN) < 0) {
+				goto stats_chart_done;
+			}
+		}
+		if(buf_putc_raw(PETSCII_RIGHT) < 0) {
+			goto stats_chart_done;
+		}
 
 		//Increment to next day:
 		++day_ptr;
@@ -396,9 +449,18 @@ void system_stats(void)
 	}
 
 	//Clean up:
-	buf.bufmem[buf.ptr++]=PETSCII_REVOFF;
-	buf.bufmem[buf.ptr++]=ISO_cr;
-	buf.bufmem[buf.ptr]=0;
+	if(buf_putc_raw(PETSCII_REVOFF) < 0) {
+		goto stats_chart_done;
+	}
+	if(buf_putc_raw(ISO_cr) < 0) {
+		goto stats_chart_done;
+	}
+	if(buf.ptr < buf.size) {
+		buf.bufmem[buf.ptr] = 0;
+	}
+
+stats_chart_done:
+	;
 
 
 	for(k=1; k<=BBS_MAX_BOARDS; ++k){
@@ -860,26 +922,30 @@ PROCESS_THREAD(bbs_timer_process, ev, data)
 
   while (1) {
 
-     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&bbs_session_timer));
+     PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input ||
+                              etimer_expired(&bbs_session_timer));
 
-     if (ev == PROCESS_EVENT_TIMER) {
-        if (bbs_status.status>STATUS_HANDLE)
-           process_post(PROCESS_BROADCAST, PROCESS_EVENT_TIMER, NULL);
-        else
-           process_post(&bbs_login_process, PROCESS_EVENT_TIMER, NULL);
+     if(ev == shell_event_input) {
+       /* Activity on a completed line: extend login or session window. */
+       if(bbs_status.status > STATUS_HANDLE) {
+         etimer_set(&bbs_session_timer, BBS_SESSION_TIMEOUT);
+       } else {
+         etimer_set(&bbs_session_timer, BBS_LOGIN_TIMEOUT);
+       }
+     } else if(etimer_expired(&bbs_session_timer)) {
+        if(bbs_status.status > STATUS_HANDLE) {
+          process_post(PROCESS_BROADCAST, PROCESS_EVENT_TIMER, NULL);
+        } else {
+          process_post(&bbs_login_process, PROCESS_EVENT_TIMER, NULL);
+        }
 
         sprintf(szBuff, "session timeout.");
         shell_output_str(NULL, szBuff, "");
-        if (bbs_status.status>STATUS_HANDLE)
-           etimer_set(&bbs_session_timer, BBS_SESSION_TIMEOUT);
-        else
-           etimer_set(&bbs_session_timer, BBS_LOGIN_TIMEOUT);
-     } else {
-       if (ev == shell_event_input) 
-         if (bbs_status.status>STATUS_HANDLE)
-            etimer_set(&bbs_session_timer, BBS_SESSION_TIMEOUT);
-         else
-            etimer_set(&bbs_session_timer, BBS_LOGIN_TIMEOUT);
+        if(bbs_status.status > STATUS_HANDLE) {
+          etimer_set(&bbs_session_timer, BBS_SESSION_TIMEOUT);
+        } else {
+          etimer_set(&bbs_session_timer, BBS_LOGIN_TIMEOUT);
+        }
      }
   }
 
@@ -1389,6 +1455,9 @@ shell_input(char *commandline, int commandline_len)
       input.data2 = "";
       input.len2 = 0;
       process_post_synch(front_process, shell_event_input, &input);
+    }
+    if(process_is_running(&bbs_timer_process)) {
+      process_post(&bbs_timer_process, shell_event_input, NULL);
     }
   //}
 }

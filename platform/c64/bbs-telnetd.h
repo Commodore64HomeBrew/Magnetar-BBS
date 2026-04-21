@@ -50,4 +50,8 @@ void telnetd_quit(void);
 
 int buf_append(const char *data, int len);
 
+unsigned int buf_free_bytes(void);
+/* Append one raw byte to the telnet output queue; returns 0 on success, -1 if full. */
+int buf_putc_raw(unsigned char c);
+
 #endif /* TELNETD_H_ */
