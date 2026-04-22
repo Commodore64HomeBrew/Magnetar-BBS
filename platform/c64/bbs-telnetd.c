@@ -364,7 +364,9 @@ get_char(uint8_t c)
 	}
 
 
-	if(bbs_status.echo==1){
+	/* Issue 6: echo 1 and 2 share the same line editor (wrap, DEL, column).
+	   Mode 2 used to only ++col_num per byte and never wrapped at width. */
+	if(bbs_status.echo==1 || bbs_status.echo==2){
 
 		if (c == PETSCII_DEL){
 			if(s.bufptr>0){
@@ -460,10 +462,6 @@ get_char(uint8_t c)
       (void)buf_putc_raw(c);
       TELNETD_COL1_BUMP_AFTER_ECHO(c);
 		}
-	}
-	else if(bbs_status.echo==2){
-    (void)buf_putc_raw(c);
-	  ++col_num;
 	}
 
 	if(c != ISO_nl){
