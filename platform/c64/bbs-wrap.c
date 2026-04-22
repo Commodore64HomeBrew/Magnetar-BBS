@@ -13,9 +13,6 @@ bws_find_break_back(
 	unsigned short j;
 	unsigned char ch;
 
-	if(p == 0) {
-		return preCol;
-	}
 	if(i <= preCol) {
 		return preCol;
 	}

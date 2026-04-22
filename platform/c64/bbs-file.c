@@ -148,11 +148,11 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
         /* Hint from forward pass (last word-break on this row) avoids O(n) backward walk. */
         if(last_spc >= (int)preCol
 		    && last_spc <= (int)i
-		    && BWS_WORD_BREAK(buf.bufmem[last_spc]) != 0u) {
+		    && BWS_SPACE_ONLY(buf.bufmem[last_spc]) != 0u) {
           j = (unsigned short)last_spc;
         } else {
           j = bws_find_break_back(
-              buf.bufmem, preCol, i, BWS_FIND_MODE_TELNET);
+              buf.bufmem, preCol, i, BWS_FIND_MODE_BANNER);
         }
         if(bbs_status.encoding==1) {
           buf.bufmem[j] = ISO_nl;
@@ -196,7 +196,7 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
         }
       } else {
         ++col;
-        if(BWS_WORD_BREAK(c) != 0u) {
+        if(BWS_SPACE_ONLY(c) != 0u) {
           last_spc = (int)i;
         }
       }
