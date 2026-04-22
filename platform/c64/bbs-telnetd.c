@@ -91,6 +91,21 @@ uint8_t col_num=0;
 unsigned char sd_c[MAX_STREAM_SPEED];
 unsigned int sd_len;
 
+/* Echo mode 1: one terminal column for wrap/DEL sync (issue 3). */
+#define TELNETD_COL1_CELL(c) \
+	(((unsigned char)(c) > 0x1Fu && (unsigned char)(c) < 0x80u) \
+	 || (unsigned char)(c) > 0x9Fu)
+#define TELNETD_COL1_BUMP_AFTER_ECHO(c) do { \
+	uint8_t col1c = (c); \
+	if(col1c == ISO_cr || col1c == ISO_nl) { \
+		col_num = 0; \
+	} else if(col1c == 0x09u) { \
+		if(col_num < bbs_status.width) { ++col_num; } \
+	} else if(TELNETD_COL1_CELL(col1c)) { \
+		++col_num; \
+	} \
+} while(0)
+
 
 //static struct telnetd_buf buf;
 static struct timer silence_timer;
@@ -373,6 +388,7 @@ get_char(uint8_t c)
 						(void)buf_putc_raw(cr);
 						col_num = 0;
 						(void)buf_putc_raw(c);
+						TELNETD_COL1_BUMP_AFTER_ECHO(c);
 					} else {
 					i = (int)s.bufptr - 1;
 					while(s.buf[i] != PETSCII_SPACE && i > 0) {
@@ -384,22 +400,23 @@ get_char(uint8_t c)
 					}
 
 					(void)buf_putc_raw(cr);
-					col_num = (int)s.bufptr - i;
-
 					for(n = i; n < (int)s.bufptr; ++n) {
 						(void)buf_putc_raw((unsigned char)s.buf[n]);
 					}
+					col_num = (int)s.bufptr - i;
 					(void)buf_putc_raw(c);
+					if(c == ISO_cr || c == ISO_nl) {
+						col_num = 0;
+					} else if(TELNETD_COL1_CELL((unsigned char)c) || c == 0x09u) {
+						++col_num;
+					}
 					}
 				}
 			}
 		}
 		else{	
       (void)buf_putc_raw(c);
-      //Only advance column counter if char is alphanumeric
-      if ((c > 0x1F && c < 0x80) || (c > 0x9F)){
-        ++col_num;
-      }
+      TELNETD_COL1_BUMP_AFTER_ECHO(c);
 		}
 	}
 	else if(bbs_status.echo==2){
