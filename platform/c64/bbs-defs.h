@@ -197,6 +197,7 @@ typedef struct {
 typedef struct {
   unsigned char buf[TELNETD_CONF_LINELEN + 1];
   unsigned char bufptr;
+  unsigned char last_space_at; /* index of last PETSCII_SPACE in buf; 255=none */
   unsigned char connected;
   unsigned long numsent;
   unsigned short state;

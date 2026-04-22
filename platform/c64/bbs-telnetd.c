@@ -106,6 +106,7 @@ unsigned int sd_len;
 	} \
 } while(0)
 
+#define TELNETD_LAST_SPACE_NONE 255u
 
 //static struct telnetd_buf buf;
 static struct timer silence_timer;
@@ -115,6 +116,25 @@ TELNETD_STATE s;
 BBS_BUFFER buf;
 
 //static uint8_t connected;
+
+/*---------------------------------------------------------------------------*/
+static void
+telnetd_rescan_last_space(void)
+{
+	unsigned char j;
+
+	s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
+	if(s.bufptr == 0) {
+		return;
+	}
+	for(j = s.bufptr; j > 0u; ) {
+		--j;
+		if(s.buf[(int)j] == PETSCII_SPACE) {
+			s.last_space_at = j;
+			break;
+		}
+	}
+}
 
 
 /*---------------------------------------------------------------------------*/
@@ -344,9 +364,15 @@ get_char(uint8_t c)
 
 		if (c == PETSCII_DEL){
 			if(s.bufptr>0){
+				unsigned char del_at;
+
+				del_at = s.bufptr - 1u;
 				--s.bufptr;
 				s.buf[(int)s.bufptr] = 0;
-        
+				if(s.last_space_at == del_at) {
+					telnetd_rescan_last_space();
+				}
+
         (void)buf_putc_raw(c);
 
         if(col_num>0){--col_num;}
@@ -390,6 +416,17 @@ get_char(uint8_t c)
 						(void)buf_putc_raw(c);
 						TELNETD_COL1_BUMP_AFTER_ECHO(c);
 					} else {
+					/* Issue 4: use last_space_at to avoid O(n) backward scan. */
+					if(s.last_space_at != (unsigned char)TELNETD_LAST_SPACE_NONE
+					    && s.last_space_at < s.bufptr
+					    && s.buf[(int)s.last_space_at] == PETSCII_SPACE) {
+						unsigned char k;
+
+						for(k = s.bufptr - 1u; k > s.last_space_at; --k) {
+							(void)buf_putc_raw(dl);
+						}
+						i = (int)s.last_space_at + 1;
+					} else {
 					i = (int)s.bufptr - 1;
 					while(s.buf[i] != PETSCII_SPACE && i > 0) {
 						(void)buf_putc_raw(dl);
@@ -397,6 +434,7 @@ get_char(uint8_t c)
 					}
 					if(s.buf[i] == PETSCII_SPACE) {
 						++i;
+					}
 					}
 
 					(void)buf_putc_raw(cr);
@@ -427,6 +465,9 @@ get_char(uint8_t c)
 	if(c != ISO_nl){
 		s.buf[(int)s.bufptr] = c;
 		++s.bufptr;
+		if(c == PETSCII_SPACE) {
+			s.last_space_at = s.bufptr - 1u;
+		}
 	}
 
 	//if(s.bufptr == sizeof(s.buf) || c == ISO_cr || c == ISO_nl) {
@@ -450,6 +491,7 @@ get_char(uint8_t c)
 		//PRINTF("telnetd: get_char '%.*s'\n", s.bufptr, s.buf);
 		shell_input(s.buf, s.bufptr);
 		s.bufptr = 0;
+		s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
 
 	}
 
@@ -549,6 +591,7 @@ telnetd_appcall(void *ts)
     if(!s.connected) {
       buf_init();
       s.bufptr = 0;
+      s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
       s.state = STATE_NORMAL;
       s.connected = 1;
       shell_start();
