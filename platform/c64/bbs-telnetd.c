@@ -361,25 +361,31 @@ get_char(uint8_t c)
 				}
 				else
       			{
-					i=(int)s.bufptr;
-					//Erase the word
-					while(s.buf[i]!=PETSCII_SPACE && i>0){
-            (void)buf_putc_raw(dl);
+					/* Last committed char is at bufptr-1; c is not stored yet.
+					   bufptr was used as erase start (issue 1): extra DEL and
+					   s.buf[bufptr] was wrong index. Guard bufptr<1: no underread. */
+					if((int)s.bufptr < 1) {
+						(void)buf_putc_raw(cr);
+						col_num = 0;
+						(void)buf_putc_raw(c);
+					} else {
+					i = (int)s.bufptr - 1;
+					while(s.buf[i] != PETSCII_SPACE && i > 0) {
+						(void)buf_putc_raw(dl);
 						--i;
 					}
-					++i;
-
-					//Jump to new line
-          (void)buf_putc_raw(cr);
-					//Set the column number to match wrapped word
-					col_num=(int)s.bufptr-i;
-
-					//Rewrite the word
-					for(n=i;n<(int)s.bufptr;++n){
-            (void)buf_putc_raw((unsigned char)s.buf[n]);
+					if(s.buf[i] == PETSCII_SPACE) {
+						++i;
 					}
-					//Add the new character to the word.
-          (void)buf_putc_raw(c);
+
+					(void)buf_putc_raw(cr);
+					col_num = (int)s.bufptr - i;
+
+					for(n = i; n < (int)s.bufptr; ++n) {
+						(void)buf_putc_raw((unsigned char)s.buf[n]);
+					}
+					(void)buf_putc_raw(c);
+					}
 				}
 			}
 		}
