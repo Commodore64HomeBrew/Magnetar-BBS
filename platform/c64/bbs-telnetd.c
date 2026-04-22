@@ -41,6 +41,7 @@
 #include "bbs-encodings.h"
 #include "bbs-shell.h"
 #include "bbs-defs.h"
+#include "bbs-wrap.h"
 #include "bbs-telnetd.h"
 
 extern BBS_BOARD_REC board;
@@ -133,7 +134,7 @@ telnetd_rescan_last_space(void)
 	}
 	for(j = s.bufptr; j > 0u; ) {
 		--j;
-		if(TELNETD_WORD_BREAK(s.buf[(int)j])) {
+		if(bws_word_break(s.buf[(int)j]) != 0u) {
 			s.last_space_at = j;
 			break;
 		}
@@ -433,13 +434,17 @@ get_char(uint8_t c)
 						}
 						i = (int)s.last_space_at + 1;
 					} else {
-					i = (int)s.bufptr - 1;
-					while(!TELNETD_WORD_BREAK(s.buf[i]) && i > 0) {
+					unsigned short wj, kd;
+
+					wj = bws_find_break_back(
+					    s.buf, 0u, (unsigned short)(s.bufptr - 1u), bws_word_break);
+					for(kd = (unsigned short)(s.bufptr - 1u); kd > wj; --kd) {
 						(void)buf_putc_raw(dl);
-						--i;
 					}
-					if(TELNETD_WORD_BREAK(s.buf[i])) {
-						++i;
+					if(bws_word_break(s.buf[(int)wj]) != 0u) {
+						i = (short)wj + 1;
+					} else {
+						i = 0;
 					}
 					}
 					/* Issue 7: with no word break in the buffer, the while stops

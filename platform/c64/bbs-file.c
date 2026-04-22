@@ -8,6 +8,7 @@
 #include "bbs-shell.h"
 #include "bbs-file.h"
 #include "bbs-defs.h"
+#include "bbs-wrap.h"
 #include "bbs-telnetd.h"
 #include "bbs-encodings.h"
 #include "contiki-net.h"
@@ -132,67 +133,71 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
   cbm_close(10);
 
 
-  if (wordWrap==1){
+  if (wordWrap==1) {
+    int last_spc;
 
     width = bbs_status.width;
-    col=0;
-    preCol=0;
-    for (i=ptr; i<(unsigned short)buf.used; i++) {
+    col = 0;
+    preCol = 0;
+    last_spc = -1;
+    for(i = ptr; i < (unsigned short)buf.used; i++) {
 
-      c=buf.bufmem[i];
+      c = buf.bufmem[i];
 
-      if (col == width){
-
-        //We're at the end of the row. Walk back until you find a space and then insert a CR:
-        j=i;
-        while(buf.bufmem[j] != PETSCII_SPACE && j>preCol){
-          --j;
+      if (col == width) {
+        /* Hint from forward pass (last word-break on this row) avoids O(n) backward walk. */
+        if(last_spc >= (int)preCol
+		    && last_spc <= (int)i
+		    && bws_word_break(buf.bufmem[last_spc]) != 0u) {
+          j = (unsigned short)last_spc;
+        } else {
+          j = bws_find_break_back(buf.bufmem, preCol, i, bws_word_break);
         }
-        //Space is found; insert CR:
-        if(bbs_status.encoding==1){
+        if(bbs_status.encoding==1) {
           buf.bufmem[j] = ISO_nl;
-        }
-        else{
+        } else {
           buf.bufmem[j] = ISO_cr;
         }
-        //Record counter position of previous line:
-        preCol=j;
-        //Set the new column counter, taking into account the wrapped word:
-        col=i-j;
+        preCol = j;
+        col = (unsigned short)(i - j);
         ++line;
-
-      }
-      else if (c == ISO_cr || c == ISO_nl){
+        last_spc = -1;
+      } else if (c == ISO_cr || c == ISO_nl) {
       	col=0;
         ++line;
-      }
-      else if (c==0x05 || c==0x1c || c==0x1e || c==0x1f|| c==0x81 || c==0x90 || c==0x95 || c==0x96 || c==0x97 || c==0x98 || c==0x99 || c==0x9a || c==0x9b || c==0x9c || c==0x9e || c==0x9f){
-        //nothing
-      }
-      else if(c==PETSCII_UP || c==PETSCII_DOWN || c==PETSCII_LEFT || c==PETSCII_RIGHT || c==PETSCII_CLRSCN || c==PETSCII_HOME){
+        last_spc = -1;
+      } else if (c==0x05 || c==0x1c || c==0x1e || c==0x1f|| c==0x81 || c==0x90 || c==0x95 || c==0x96 || c==0x97 || c==0x98 || c==0x99 || c==0x9a || c==0x9b || c==0x9c || c==0x9e || c==0x9f){
+        /* no column advance; last_spc unchanged */
+      } else if(c==PETSCII_UP || c==PETSCII_DOWN || c==PETSCII_LEFT || c==PETSCII_RIGHT || c==PETSCII_CLRSCN || c==PETSCII_HOME) {
 
-
-        if(c==PETSCII_LEFT){
-          if(col>0){--col;}
-        }
-        else if(c==PETSCII_RIGHT){
+        if(c==PETSCII_LEFT) {
+          if(col>0) {
+            --col;
+          }
+          last_spc = -1;
+        } else if(c==PETSCII_RIGHT) {
           ++col;
-        }
-        else if(c==PETSCII_UP){
-          if(line>0){--line;}
+          last_spc = -1;
+        } else if(c==PETSCII_UP) {
+          if(line>0) {
+            --line;
+          }
           col=0;
-        }
-        else if(c==PETSCII_DOWN){
+          last_spc = -1;
+        } else if(c==PETSCII_DOWN) {
           ++line;
           col=0;
-        }
-        else if(c==PETSCII_HOME || c==PETSCII_CLRSCN){
+          last_spc = -1;
+        } else if(c==PETSCII_HOME || c==PETSCII_CLRSCN) {
           col=0;
           line=0;
+          last_spc = -1;
         }
-      }
-      else{
+      } else {
         ++col;
+        if(bws_word_break(c) != 0u) {
+          last_spc = (int)i;
+        }
       }
     }
   }

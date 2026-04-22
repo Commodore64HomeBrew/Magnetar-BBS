@@ -10,7 +10,8 @@ TARGET = c64
 
 #PROJECTDIRS = ../.. $(CONTIKI)/apps/telnetd
 
-PROJECT_SOURCEFILES = bbs-shell.c bbs-file.c bbs-read.c bbs-post.c bbs-setboard.c bbs-telnetd.c bbs-encodings.c
+# bbs-wrap.c: word-break + backward scan (shared by bbs-file / bbs-telnetd in a later step)
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-read.c bbs-post.c bbs-setboard.c bbs-telnetd.c bbs-encodings.c
 
 # Ship: no WITH_LOGGING (faster uIP, smaller; see 6502def.h LOG/UIP logging).
 # WITH_BOOST keeps TCP split; do not add WITH_GUI / WITH_DNS / WITH_MOUSE for headless BBS.
