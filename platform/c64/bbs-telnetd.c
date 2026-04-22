@@ -348,9 +348,14 @@ get_char(uint8_t c)
 
 		if(col_num>=bbs_status.width){
 
-			if(c != ISO_cr && c!= ISO_nl)
-    		{
-			
+			if(c == ISO_cr || c == ISO_nl) {
+				/* Issue 2: at right margin these were skipped by the inner
+				   wrap branch, so nothing was echoed while buffer logic still
+				   ran — desynced display from line state. */
+				(void)buf_putc_raw(c);
+				col_num = 0;
+			} else {
+
 				if(c==PETSCII_SPACE)
       			{
 					//jump to next line
