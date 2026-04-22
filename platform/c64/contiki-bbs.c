@@ -50,19 +50,8 @@
 
 #include "contiki-net.h"
 #include "bbs-telnetd.h"
-#include "bbs-shell.h"
+/* Only this file is built as .co with -DAUTOSTART_ENABLE; shell_init() in telnetd. */
 
 char telnetd_reject_text[] = "centronian bbs is busy, please try again later.";
 
-/*---------------------------------------------------------------------------*/
-PROCESS(shell_init_process, "Shell init process");
-/*---------------------------------------------------------------------------*/
-PROCESS_THREAD(shell_init_process, ev, data)
-{
-  PROCESS_BEGIN();
-  
-  PROCESS_END();
-}
-/*---------------------------------------------------------------------------*/
-AUTOSTART_PROCESSES(&telnetd_process, &shell_init_process);
-/*---------------------------------------------------------------------------*/
+AUTOSTART_PROCESSES(&telnetd_process);

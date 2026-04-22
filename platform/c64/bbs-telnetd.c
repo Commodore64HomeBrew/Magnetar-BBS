@@ -52,7 +52,7 @@ extern BBS_SYSTEM_STATS bbs_sysstats;
 
 PROCESS(telnetd_process, "Telnet server");
 
-AUTOSTART_PROCESSES(&telnetd_process);
+/* AUTOSTART is in contiki-bbs.c (.co, -DAUTOSTART_ENABLE); this .c is plain .o. */
 
 #ifdef TELNETD_CONF_REJECT
 extern char telnetd_reject_text[];
