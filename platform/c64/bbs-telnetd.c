@@ -109,10 +109,6 @@ unsigned int sd_len;
 
 #define TELNETD_LAST_SPACE_NONE 255u
 
-/* Issue 5: word-wrap breaks: PETSCII/ASCII 0x20 and ISO tab (0x09) from telnet. */
-#define TELNETD_WORD_BREAK(c) \
-	((unsigned char)(c) == PETSCII_SPACE || (unsigned char)(c) == 0x09u)
-
 //static struct telnetd_buf buf;
 static struct timer silence_timer;
 
@@ -134,7 +130,7 @@ telnetd_rescan_last_space(void)
 	}
 	for(j = s.bufptr; j > 0u; ) {
 		--j;
-		if(bws_word_break(s.buf[(int)j]) != 0u) {
+		if(BWS_WORD_BREAK(s.buf[(int)j]) != 0u) {
 			s.last_space_at = j;
 			break;
 		}
@@ -404,7 +400,7 @@ get_char(uint8_t c)
 				col_num = 0;
 			} else {
 
-				if(TELNETD_WORD_BREAK(c))
+				if(BWS_WORD_BREAK(c))
       			{
 					//jump to next line
           (void)buf_putc_raw(c);
@@ -426,7 +422,7 @@ get_char(uint8_t c)
 					/* Issue 4: use last_space_at to avoid O(n) backward scan. */
 					if(s.last_space_at != (unsigned char)TELNETD_LAST_SPACE_NONE
 					    && s.last_space_at < s.bufptr
-					    && TELNETD_WORD_BREAK(s.buf[(int)s.last_space_at])) {
+					    && BWS_WORD_BREAK(s.buf[(int)s.last_space_at])) {
 						unsigned char k;
 
 						for(k = s.bufptr - 1u; k > s.last_space_at; --k) {
@@ -437,11 +433,11 @@ get_char(uint8_t c)
 					unsigned short wj, kd;
 
 					wj = bws_find_break_back(
-					    s.buf, 0u, (unsigned short)(s.bufptr - 1u), bws_word_break);
+					    s.buf, 0u, (unsigned short)(s.bufptr - 1u), BWS_FIND_MODE_TELNET);
 					for(kd = (unsigned short)(s.bufptr - 1u); kd > wj; --kd) {
 						(void)buf_putc_raw(dl);
 					}
-					if(bws_word_break(s.buf[(int)wj]) != 0u) {
+					if(BWS_WORD_BREAK(s.buf[(int)wj]) != 0u) {
 						i = (short)wj + 1;
 					} else {
 						i = 0;
@@ -478,7 +474,7 @@ get_char(uint8_t c)
 	if(c != ISO_nl){
 		s.buf[(int)s.bufptr] = c;
 		++s.bufptr;
-		if(TELNETD_WORD_BREAK(c)) {
+		if(BWS_WORD_BREAK(c)) {
 			s.last_space_at = s.bufptr - 1u;
 		}
 	}

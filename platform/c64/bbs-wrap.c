@@ -1,35 +1,17 @@
 /**
- * \file bbs-wrap.c — word-break and backward wrap scan (see bbs-wrap.h)
+ * \file bbs-wrap.c — single backward scan, no function pointer (smaller on 6502).
  */
-
 #include "bbs-wrap.h"
-
-unsigned char
-bws_word_break(unsigned char c)
-{
-	if(c == PETSCII_SPACE) {
-		return 1u;
-	}
-	if(c == 0x09u) {
-		return 1u;
-	}
-	return 0u;
-}
-
-unsigned char
-bws_is_space(unsigned char c)
-{
-	return (c == PETSCII_SPACE) ? 1u : 0u;
-}
 
 unsigned short
 bws_find_break_back(
     const unsigned char *p,
     unsigned short preCol,
     unsigned short i,
-    unsigned char (*is_break)(unsigned char))
+    unsigned char space_only)
 {
 	unsigned short j;
+	unsigned char ch;
 
 	if(p == 0) {
 		return preCol;
@@ -38,7 +20,17 @@ bws_find_break_back(
 		return preCol;
 	}
 	j = i;
-	while(j > preCol && !is_break(p[j])) {
+	while(j > preCol) {
+		ch = p[j];
+		if(space_only != 0u) {
+			if(BWS_SPACE_ONLY(ch)) {
+				break;
+			}
+		} else {
+			if(BWS_WORD_BREAK(ch)) {
+				break;
+			}
+		}
 		--j;
 	}
 	return j;

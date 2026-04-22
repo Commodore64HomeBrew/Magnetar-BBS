@@ -1,30 +1,25 @@
 /**
  * \file
- *         Shared line-wrap helpers (word-break scan). Used from bbs-file / bbs-telnetd.
+ *         Word-break rules + one backward scan for wrap (minimize .o / no fn-ptr on cc65).
  */
 #ifndef BBS_WRAP_H
 #define BBS_WRAP_H
 
 #include "bbs-defs.h"
 
-/* Space or ISO TAB — matches telnet line editor. */
-unsigned char bws_word_break(unsigned char c);
+/* Inlined: no out-of-line calls on hot tests (saves over bws_word_break()) */
+#define BWS_WORD_BREAK(c) \
+	(((unsigned char)(c) == PETSCII_SPACE) || ((unsigned char)(c) == 0x09u))
+#define BWS_SPACE_ONLY(c) ((unsigned char)(c) == PETSCII_SPACE)
 
-/* PETSCII space only — matches bbs_banner file wrap when not using tabs in buffer. */
-unsigned char bws_is_space(unsigned char c);
+/* bbs_find_break_back: space_only=1 → PETSCII space; 0 → space + tab (telnet) */
+#define BWS_FIND_MODE_TELNET 0u
+#define BWS_FIND_MODE_BANNER 1u
 
-/**
- * Find break index when wrapping from a forward scan that reached column == width
- * at position \p i. Walks \p j down from \p i while \p j > preCol and
- * !is_break(p[j]); returns the stopping \p j in [preCol, i].
- *
- * If is_break(p[j]) is true, a word break was found at \p j. If not and j == preCol,
- * there is no break in (preCol, i] (long word / hard wrap — caller policy).
- */
 unsigned short bws_find_break_back(
     const unsigned char *p,
     unsigned short preCol,
     unsigned short i,
-    unsigned char (*is_break)(unsigned char));
+    unsigned char space_only);
 
 #endif /* BBS_WRAP_H */
