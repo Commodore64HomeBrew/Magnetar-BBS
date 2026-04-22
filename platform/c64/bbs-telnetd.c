@@ -442,6 +442,12 @@ get_char(uint8_t c)
 						++i;
 					}
 					}
+					/* Issue 7: with no word break in the buffer, the while stops
+					   at i==0 and never issues dl for s.buf[0] (i>0 is false).
+					   One extra del removes that last char from the old row. */
+					if(i == 0 && (int)s.bufptr > 0) {
+						(void)buf_putc_raw(dl);
+					}
 
 					(void)buf_putc_raw(cr);
 					for(n = i; n < (int)s.bufptr; ++n) {
