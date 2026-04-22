@@ -16,7 +16,7 @@ PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-read.c bbs-post.c bb
 # Ship: no WITH_LOGGING (faster uIP, smaller; see 6502def.h LOG/UIP logging).
 # WITH_BOOST keeps TCP split; do not add WITH_GUI / WITH_DNS / WITH_MOUSE for headless BBS.
 #DEFINES = WITH_BOOST,TELNETD_CONF_REJECT,TELNETD_CONF_MAX_IDLE_TIME=0
-DEFINES = WITH_BOOST,TELNETD_CONF_REJECT
+DEFINES = WITH_LOGGING,WITH_BOOST,TELNETD_CONF_REJECT
 
 # IPv4-only BBS: pin off other stacks so Makefile.include never pulls v6/mesh by mistake.
 CONTIKI_WITH_IPV4  = 1
