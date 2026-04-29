@@ -528,6 +528,13 @@ newdata(void)
   len = uip_datalen();
   //PRINTF("newdata len %d '%.*s'\n", len, len, (char *)uip_appdata);
 
+  /* Cheap hard stop: if this TCP chunk cannot fit in the current input line,
+     close instead of partially parsing browser/HTTP garbage. */
+  if(len > (uint16_t)(TELNETD_CONF_LINELEN - s.bufptr)) {
+    s.state = STATE_CLOSE;
+    return;
+  }
+
   ptr = uip_appdata;
   //while(len > 0 && s.bufptr < sizeof(s.buf)) {
   while(len > 0 && s.bufptr < TELNETD_CONF_LINELEN) {
@@ -591,6 +598,10 @@ newdata(void)
       break;
     }
   }
+
+  if(len > 0) {
+    s.state = STATE_CLOSE;
+  }
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -608,7 +619,11 @@ telnetd_appcall(void *ts)
       ts = (char *)0;
     } else {
       uip_send(telnetd_reject_text, strlen(telnetd_reject_text));
-      ts = (char *)1;
+      /* Busy text only: close the extra socket immediately.
+         This avoids leaving a weird appstate marker around. */
+      tcp_markconn(uip_conn, NULL);
+      uip_close();
+      return;
     }
     tcp_markconn(uip_conn, ts);
   }
