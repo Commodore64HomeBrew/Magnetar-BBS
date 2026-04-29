@@ -607,6 +607,17 @@ newdata(void)
 void
 telnetd_appcall(void *ts)
 {
+  /* Secondary/extra connection reject state:
+     send queued reject text, then close on the next uIP poll.
+     Marked with (char*)1 so we don't run the primary shell teardown paths. */
+  if(ts == (void *)1) {
+    if(uip_poll()) {
+      uip_close();
+      tcp_markconn(uip_conn, NULL);
+    }
+    return;
+  }
+
   if(uip_connected()) {
     if(!s.connected) {
       buf_init();
@@ -619,11 +630,9 @@ telnetd_appcall(void *ts)
       ts = (char *)0;
     } else {
       uip_send(telnetd_reject_text, strlen(telnetd_reject_text));
-      /* Busy text only: close the extra socket immediately.
-         Mark its appstate non-NULL so the later uip_closed()/stop
-         logic doesn't tear down the active (primary) shell session. */
+      /* Busy text only: mark non-NULL and close on next poll,
+         so the reject text can actually get transmitted. */
       tcp_markconn(uip_conn, (char *)1);
-      uip_close();
       return;
     }
     tcp_markconn(uip_conn, ts);
