@@ -610,8 +610,8 @@ telnetd_appcall(void *ts)
   /* Secondary/extra connection reject state:
      send queued reject text, then close on the next uIP poll.
      Marked with (char*)1 so we don't run the primary shell teardown paths. */
-  if(ts == (void *)1) {
-    if(uip_poll()) {
+  if(ts != (void *)0) {
+    if(uip_acked()) {
       uip_close();
       tcp_markconn(uip_conn, NULL);
     }
