@@ -116,6 +116,11 @@ TELNETD_STATE s;
 
 BBS_BUFFER buf;
 
+/* uIP can notify this back-end for multiple TCP connections.
+   This BBS shell is single-session; keep the active/primary uip_conn here
+   so a secondary connection can't stop/steal the global shell state. */
+static struct uip_conn *primary_conn;
+
 //static uint8_t connected;
 
 /*---------------------------------------------------------------------------*/
@@ -607,6 +612,16 @@ newdata(void)
 void
 telnetd_appcall(void *ts)
 {
+  /* Secondary connection protection (single-session BBS):
+     ignore anything not coming from the primary uip_conn. */
+  if(s.connected && primary_conn != NULL && uip_conn != primary_conn) {
+    if(uip_connected()) {
+      uip_send(telnetd_reject_text, strlen(telnetd_reject_text));
+      tcp_markconn(uip_conn, (char *)1);
+    }
+    return;
+  }
+
   /* Secondary/extra connection reject state:
      send queued reject text, then close on the next uIP poll.
      Marked with (char*)1 so we don't run the primary shell teardown paths. */
@@ -625,6 +640,7 @@ telnetd_appcall(void *ts)
       s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
       s.state = STATE_NORMAL;
       s.connected = 1;
+      primary_conn = uip_conn;
       shell_start();
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
       ts = (char *)0;
@@ -655,6 +671,7 @@ telnetd_appcall(void *ts)
     		bbs_status.login=0;
   	  }
       shell_stop();
+      primary_conn = NULL;
     }
     if(uip_acked()) {
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
