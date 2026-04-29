@@ -620,8 +620,9 @@ telnetd_appcall(void *ts)
     } else {
       uip_send(telnetd_reject_text, strlen(telnetd_reject_text));
       /* Busy text only: close the extra socket immediately.
-         This avoids leaving a weird appstate marker around. */
-      tcp_markconn(uip_conn, NULL);
+         Mark its appstate non-NULL so the later uip_closed()/stop
+         logic doesn't tear down the active (primary) shell session. */
+      tcp_markconn(uip_conn, (char *)1);
       uip_close();
       return;
     }
