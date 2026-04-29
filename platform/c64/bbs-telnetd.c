@@ -614,7 +614,7 @@ telnetd_appcall(void *ts)
 {
   /* Secondary connection protection (single-session BBS):
      ignore anything not coming from the primary uip_conn. */
-  if(s.connected && primary_conn != NULL && uip_conn != primary_conn) {
+  if(s.connected && primary_conn != NULL && uip_conn != primary_conn && ts == (void *)0) {
     if(uip_connected()) {
       uip_send(telnetd_reject_text, strlen(telnetd_reject_text));
       tcp_markconn(uip_conn, (char *)1);
