@@ -7,6 +7,12 @@
 
 #include "bbs-setup.h"
 
+BBS_BOARD_REC board;
+BBS_CONFIG_REC bbs_config;
+BBS_USER_REC bbs_user;
+BBS_USER_STATS bbs_usrstats;
+BBS_SYSTEM_STATS bbs_sysstats;
+
 /* int main(int argc, char *argv[]) { */
 int main(void) {
 

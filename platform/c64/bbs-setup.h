@@ -18,11 +18,11 @@
 #include "bbs-defs.h"
 
 
-BBS_BOARD_REC board;
-BBS_CONFIG_REC bbs_config;
-BBS_USER_REC bbs_user;
-BBS_USER_STATS bbs_usrstats;
-BBS_SYSTEM_STATS bbs_sysstats;
+extern BBS_BOARD_REC board;
+extern BBS_CONFIG_REC bbs_config;
+extern BBS_USER_REC bbs_user;
+extern BBS_USER_STATS bbs_usrstats;
+extern BBS_SYSTEM_STATS bbs_sysstats;
 
 
 typedef struct

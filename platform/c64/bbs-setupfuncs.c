@@ -7,6 +7,18 @@
 
 #include "bbs-setup.h"
 
+/*
+ * Byte values match <serial.h> (cc65) — same layout Contiki expects in
+ * contiki.cfg SLIP branch (cpu/6502/README.md).
+ */
+#define SL_SER_BAUD_9600      0x0EU
+#define SL_SER_BAUD_19200     0x0FU
+#define SL_SER_BAUD_38400     0x10U
+#define SL_SER_BITS_8         0x03U
+#define SL_SER_STOP_1         0x00U
+#define SL_SER_PAR_NONE       0x00U
+#define SL_SER_HS_HW          0x01U
+
 void clearScreen(void) {
 
   clrscr();
@@ -21,7 +33,7 @@ void mainMenu(void) {
   printf("\n*** Magnetar BBS %s setup\n", BBS_STRING_VERSION);
   printf("\n1...BBS base setup");
   printf("\n2...BBS board setup");
-  printf("\n3...BBS TCP/IP setup");
+  printf("\n3...BBS TCP/IP setup (ethernet or swiftlink-slip cfg)");
   printf("\n4...BBS user editor");
   printf("\nq...Quit");
   printf("\n\n> ");
@@ -59,16 +71,31 @@ int nibbleIP(unsigned char *src, unsigned int *addr)
 
 int networkSetup(unsigned short drive)
 {
-   unsigned char  tmp[40];
-   unsigned short cnt, ret;
+   unsigned char   tmp[40];
+   unsigned short  cnt, ret;
+
+   unsigned char   slip_serial[5];
+
+   unsigned char   link_slip;
 
    CTK_CFG_REC mycnf;
 
    memset(&mycnf, 0, sizeof(CTK_CFG_REC));
+   memset(slip_serial, 0, sizeof(slip_serial));
+   link_slip = 0;
+
    do {
  
 /*             1234567890123456789012345678901234567890   */
       printf("\n* BBS network Setup\n");
+
+      printf("\nLink (e)thernet / (s)wiftlink-slip : ");
+      gets(tmp);
+      if(tmp[0] == 's' || tmp[0] == 'S') {
+         link_slip = 1;
+      } else {
+         link_slip = 0;
+      }
 
       printf("\nHost IP             : ");
       gets(tmp);
@@ -86,13 +113,40 @@ int networkSetup(unsigned short drive)
       gets(tmp);
       nibbleIP(tmp, mycnf.nameserv);
 
-      printf("Mem addr. ($de08)   : ");
-      gets(tmp);
-      sscanf(tmp, "%x", &mycnf.mem);
+      if(link_slip) {
+/*             1234567890123456789012345678901234567890    */
+         printf("\nSwiftLink baud (16-bit ints: use menu, not raw 38400).\n");
+         printf("  1=9600  2=19200  3=38400 (recommended) [3]: ");
+         gets(tmp);
+         switch(atoi(tmp)) {
+         default:
+            slip_serial[0] = SL_SER_BAUD_38400;
+            break;
+         case 1:
+            slip_serial[0] = SL_SER_BAUD_9600;
+            break;
+         case 2:
+            slip_serial[0] = SL_SER_BAUD_19200;
+            break;
+         case 3:
+            slip_serial[0] = SL_SER_BAUD_38400;
+            break;
+         }
+         slip_serial[1] = SL_SER_BITS_8;
+         slip_serial[2] = SL_SER_STOP_1;
+         slip_serial[3] = SL_SER_PAR_NONE;
+         slip_serial[4] = SL_SER_HS_HW;
 
-      printf("Driver (cs8900a.eth): ");
-      gets(tmp);
-      strcpy(mycnf.driver, tmp);
+         printf("(8n1, RTS/CTS; cc65 driver c64-swlink.ser)\n");
+      } else {
+         printf("Mem addr. ($de08)   : ");
+         gets(tmp);
+         sscanf(tmp, "%x", &mycnf.mem);
+
+         printf("Driver (cs8900a.eth): ");
+         gets(tmp);
+         strcpy(mycnf.driver, tmp);
+      }
 
       printf("Write to drive # (8): ");
       gets(tmp);
@@ -100,29 +154,31 @@ int networkSetup(unsigned short drive)
 
       printf("\nNetwork data correct (y/n)? ");
 
-   } while (getchar() != 'y');
+   } while(getchar() != 'y');
 
    strcpy(tmp, "@0:contiki.cfg,u,w");
 
    ret = cbm_open(2, drive, CBM_WRITE, tmp);
 
-   if(! ret)
-   {
-        for(cnt = 0; cnt <= 3; cnt++)
-           cbm_write(2, &mycnf.srvip[cnt], sizeof(unsigned char));
+   if(!ret) {
+      for(cnt = 0; cnt <= 3; cnt++)
+         cbm_write(2, &mycnf.srvip[cnt], sizeof(unsigned char));
 
-        for(cnt = 0; cnt <= 3; cnt++)
-           cbm_write(2, &mycnf.netmask[cnt], sizeof(unsigned char));
+      for(cnt = 0; cnt <= 3; cnt++)
+         cbm_write(2, &mycnf.netmask[cnt], sizeof(unsigned char));
 
-        for(cnt = 0; cnt <= 3; cnt++) 
-          cbm_write(2, &mycnf.gateway[cnt], sizeof(unsigned char));
+      for(cnt = 0; cnt <= 3; cnt++)
+         cbm_write(2, &mycnf.gateway[cnt], sizeof(unsigned char));
 
-        for(cnt = 0; cnt <= 3; cnt++)
-           cbm_write(2, &mycnf.nameserv[cnt], sizeof(unsigned char));
+      for(cnt = 0; cnt <= 3; cnt++)
+         cbm_write(2, &mycnf.nameserv[cnt], sizeof(unsigned char));
 
-        cbm_write(2, &mycnf.mem, sizeof(&mycnf.mem));
-
-        cbm_write(2, mycnf.driver, sizeof(mycnf.driver));
+      if(link_slip) {
+         cbm_write(2, slip_serial, sizeof(slip_serial));
+      } else {
+         cbm_write(2, &mycnf.mem, sizeof(mycnf.mem));
+         cbm_write(2, mycnf.driver, sizeof(mycnf.driver));
+      }
 
    } else {
 
@@ -184,11 +240,12 @@ void bbs_setup(){
 
 
 
-void bbs_config(){
+void bbs_load_cfg_file(void){
 
-  unsigned short fsize=0;
-  unsigned short siRet=0;
+  unsigned short fsize = 0;
+
   unsigned char file[25];
+
   unsigned char i;
 
   sprintf(file, "%s:%s",board.sys_prefix, BBS_CFG_FILE);
@@ -206,15 +263,18 @@ void bbs_config(){
     printf("\x96 config file not found, setting defaults");
     /* set sub msg counts */
     board.max_boards=9;
-    for(i=0;i<board.max_boards)
+    for(i = 0; i < board.max_boards; ++i) {
       bbs_config.msg_id[i]=0;
     }
   }
-
-
+}
 
 
 void bbs_stats(){
+
+  unsigned short fsize;
+
+  unsigned char file[25];
 
   /* read BBS stats file */
   sprintf(file, "%s:%s",board.sys_prefix, BBS_STATS_FILE);
