@@ -30,7 +30,16 @@
 #define MAX_STREAM_SPEED        10
 
 /* Outbound queue; must exceed uip MSS (~536) for smooth output. */
+#ifndef BBS_BUFFER_SIZE
 #define BBS_BUFFER_SIZE    	1500
+#endif
+
+#ifdef BBS_SERIAL_TRANSPORT
+/* Raw serial: no TCP MSS; chunk size limits bytes per scheduler tick (SwiftLink TX buffer). */
+#ifndef TELNETD_SERIAL_TX_CHUNK
+#define TELNETD_SERIAL_TX_CHUNK 520u
+#endif
+#endif
 /* In-memory post body (lines appended until /s); separate from wire buffer. */
 #define BBS_POST_BUFFER_SIZE    1500
 

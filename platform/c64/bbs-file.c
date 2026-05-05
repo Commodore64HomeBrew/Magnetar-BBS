@@ -11,7 +11,6 @@
 #include "bbs-wrap.h"
 #include "bbs-telnetd.h"
 #include "bbs-encodings.h"
-#include "contiki-net.h"
 
 #include <stdio.h>
 #include <stdlib.h>

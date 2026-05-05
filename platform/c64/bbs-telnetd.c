@@ -37,7 +37,11 @@
 #include "sys/cc.h"
 #include "contiki.h"
 #include "contiki-lib.h"
+#ifndef BBS_SERIAL_TRANSPORT
 #include "contiki-net.h"
+#else
+#include <serial.h>
+#endif
 #include "bbs-encodings.h"
 #include "bbs-shell.h"
 #include "bbs-defs.h"
@@ -116,10 +120,21 @@ TELNETD_STATE s;
 
 BBS_BUFFER buf;
 
+static void telnetd_feed(const unsigned char *ptr, unsigned int len);
+
+#ifndef BBS_SERIAL_TRANSPORT
 /* uIP can notify this back-end for multiple TCP connections.
    This BBS shell is single-session; keep the active/primary uip_conn here
    so a secondary connection can't stop/steal the global shell state. */
 static struct uip_conn *primary_conn;
+#else
+/* After hangup, wait for first serial byte before opening a new session. */
+static unsigned char serial_waiting_peer;
+static void telnetd_serial_on_connect(void);
+static void telnetd_serial_disconnect(void);
+static void telnetd_serial_write(const void *vd, unsigned int len);
+static void telnetd_serial_tx(void);
+#endif
 
 //static uint8_t connected;
 
@@ -315,14 +330,133 @@ shell_exit(void)
     }
 }*/
 /*---------------------------------------------------------------------------*/
+#ifdef BBS_SERIAL_TRANSPORT
+static void
+telnetd_serial_on_connect(void)
+{
+  buf_init();
+  s.bufptr = 0;
+  s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
+  s.state = STATE_NORMAL;
+  s.connected = 1;
+  shell_start();
+  timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
+}
+/*---------------------------------------------------------------------------*/
+static void
+telnetd_serial_disconnect(void)
+{
+  log_message("\x9e", "telnetd stop");
+  update_time();
+
+  if(bbs_status.login == 1) {
+    save_stats();
+    bbs_status.login = 0;
+  }
+  shell_stop();
+  s.connected = 0;
+}
+/*---------------------------------------------------------------------------*/
+static void
+telnetd_serial_write(const void *vd, unsigned int len)
+{
+  const unsigned char *q = (const unsigned char *)vd;
+
+  while(len != 0u) {
+    while(ser_put((char)*q) == SER_ERR_OVERFLOW) {
+      ;
+    }
+    ++q;
+    --len;
+  }
+}
+/*---------------------------------------------------------------------------*/
+static void
+telnetd_serial_tx(void)
+{
+  if(bbs_status.status == STATUS_STREAM) {
+    sd_len = cbm_read(10, &sd_c, bbs_status.speed);
+    if(sd_len > 0) {
+      telnetd_serial_write(sd_c, sd_len);
+      s.numsent = sd_len;
+      timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
+    } else {
+      bbs_status.status = STATUS_LOCK;
+      s.numsent = 0;
+    }
+  } else {
+    if(buf.used == 0) {
+      sd_len = 0;
+    } else {
+      unsigned int chunk;
+      unsigned int first;
+
+      chunk = (unsigned int)TELNETD_SERIAL_TX_CHUNK;
+      first = buf.size - buf.head;
+      sd_len = buf.used;
+      if(sd_len > chunk) {
+        sd_len = chunk;
+      }
+      if(sd_len > first) {
+        sd_len = first;
+      }
+      telnetd_serial_write(&buf.bufmem[buf.head], sd_len);
+    }
+    s.numsent = sd_len;
+    if(s.numsent > 0) {
+      timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
+      buf_ack_sent((unsigned int)s.numsent);
+    }
+  }
+}
+/*---------------------------------------------------------------------------*/
+static void
+telnetd_serial_poll_io(void)
+{
+  unsigned char c;
+
+  while(ser_get((char *)&c) != SER_ERR_NO_DATA) {
+    if(serial_waiting_peer != 0u) {
+      serial_waiting_peer = 0u;
+      telnetd_serial_on_connect();
+    }
+    if(s.connected != 0u) {
+      timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
+      telnetd_feed(&c, 1u);
+    }
+  }
+
+  if(s.connected == 0u) {
+    return;
+  }
+
+  if(s.state == STATE_CLOSE) {
+    s.state = STATE_NORMAL;
+    telnetd_serial_disconnect();
+    serial_waiting_peer = 1u;
+    return;
+  }
+
+  telnetd_serial_tx();
+
+  if(timer_expired(&silence_timer)) {
+    telnetd_serial_disconnect();
+    serial_waiting_peer = 1u;
+  }
+}
+#endif /* BBS_SERIAL_TRANSPORT */
+/*---------------------------------------------------------------------------*/
 PROCESS_THREAD(telnetd_process, ev, data)
 {
   PROCESS_BEGIN();
-  
+
   shell_init();
 
-  if(bbs_status.encoding==1){petscii_to_ascii(telnetd_reject_text, strlen(telnetd_reject_text));}
+  if(bbs_status.encoding == 1) {
+    petscii_to_ascii(telnetd_reject_text, strlen(telnetd_reject_text));
+  }
 
+#ifndef BBS_SERIAL_TRANSPORT
   tcp_listen(UIP_HTONS(board.telnet_port));
 
   while(1) {
@@ -334,7 +468,16 @@ PROCESS_THREAD(telnetd_process, ev, data)
       telnetd_quit();
     }
   }
-  
+#else
+  serial_waiting_peer = 0u;
+  telnetd_serial_on_connect();
+
+  while(1) {
+    telnetd_serial_poll_io();
+    PROCESS_PAUSE();
+  }
+#endif
+
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
@@ -524,24 +667,17 @@ sendopt(uint8_t option, uint8_t value)
 }
 /*---------------------------------------------------------------------------*/
 static void
-newdata(void)
+telnetd_feed(const unsigned char *ptr, unsigned int len)
 {
-  uint16_t len;
-  uint8_t c;
-  uint8_t *ptr;
-    
-  len = uip_datalen();
-  //PRINTF("newdata len %d '%.*s'\n", len, len, (char *)uip_appdata);
+  unsigned char c;
 
-  /* Cheap hard stop: if this TCP chunk cannot fit in the current input line,
+  /* Cheap hard stop: if this chunk cannot fit in the current input line,
      close instead of partially parsing browser/HTTP garbage. */
-  if(len > (uint16_t)(TELNETD_CONF_LINELEN - s.bufptr)) {
+  if(len > (unsigned int)(TELNETD_CONF_LINELEN - s.bufptr)) {
     s.state = STATE_CLOSE;
     return;
   }
 
-  ptr = uip_appdata;
-  //while(len > 0 && s.bufptr < sizeof(s.buf)) {
   while(len > 0 && s.bufptr < TELNETD_CONF_LINELEN) {
 
     c = *ptr;
@@ -608,7 +744,16 @@ newdata(void)
     s.state = STATE_CLOSE;
   }
 }
+
+#ifndef BBS_SERIAL_TRANSPORT
+static void
+newdata(void)
+{
+  telnetd_feed((const unsigned char *)uip_appdata, (unsigned int)uip_datalen());
+}
+#endif
 /*---------------------------------------------------------------------------*/
+#ifndef BBS_SERIAL_TRANSPORT
 void
 telnetd_appcall(void *ts)
 {
@@ -733,6 +878,7 @@ telnetd_appcall(void *ts)
     }
   }
 }
+#endif /* !BBS_SERIAL_TRANSPORT */
 /*---------------------------------------------------------------------------*/
 /*void
 telnetd_init(void)
