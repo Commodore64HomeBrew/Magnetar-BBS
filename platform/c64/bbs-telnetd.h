@@ -47,6 +47,8 @@ void telnetd_gui_init(void);
 void telnetd_gui_output(const char *str1, int len1, const char *str2, int len2);
 void telnetd_gui_quit(void);
 void telnetd_quit(void);
+/* Ask tcpip to run telnetd_appcall soon (e.g. after user quit sets STATE_CLOSE). */
+void telnetd_kick_disconnect(void);
 
 int buf_append(const char *data, int len);
 

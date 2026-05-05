@@ -558,6 +558,7 @@ void bbs_unlock(void)
   process_exit(&bbs_timer_process);
   //shell_exit();
   s.state = STATE_CLOSE;
+  telnetd_kick_disconnect();
 }
 /*---------------------------------------------------------------------------*/
 int bbs_get_user(char *data)

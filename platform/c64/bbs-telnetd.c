@@ -274,6 +274,23 @@ telnetd_quit(void)
   LOADER_UNLOAD();
 }
 /*---------------------------------------------------------------------------*/
+/* After bbs_unlock (STATE_CLOSE), schedule a tcp poll so uip_close() runs soon
+ * instead of waiting for the next inbound packet / timer. Must not allocate. */
+#ifndef BBS_SERIAL_TRANSPORT
+void
+telnetd_kick_disconnect(void)
+{
+  if(primary_conn != NULL) {
+    tcpip_poll_tcp(primary_conn);
+  }
+}
+#else /* BBS_SERIAL_TRANSPORT */
+void
+telnetd_kick_disconnect(void)
+{
+}
+#endif /* BBS_SERIAL_TRANSPORT */
+/*---------------------------------------------------------------------------*/
 void
 shell_prompt(char *str)
 {
@@ -763,6 +780,12 @@ telnetd_appcall(void *ts)
     if(uip_connected()) {
       uip_send(telnetd_reject_text, strlen(telnetd_reject_text));
       tcp_markconn(uip_conn, (char *)1);
+    } else {
+      /* Stale tcp after primary moved to another uip_conn (e.g. new login while
+       * old socket not closed). uip_connected() is only true during SYN
+       * handshake; idle sessions must be closed explicitly. */
+      uip_close();
+      tcp_markconn(uip_conn, NULL);
     }
     return;
   }
