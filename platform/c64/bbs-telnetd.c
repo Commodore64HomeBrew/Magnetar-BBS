@@ -51,6 +51,7 @@
 extern BBS_BOARD_REC board;
 extern BBS_STATUS_REC bbs_status;
 extern BBS_USER_REC bbs_user;
+extern unsigned short bbs_locked;
 extern BBS_USER_STATS bbs_usrstats;
 extern BBS_SYSTEM_STATS bbs_sysstats;
 
@@ -763,14 +764,69 @@ telnetd_feed(const unsigned char *ptr, unsigned int len)
 }
 
 #ifndef BBS_SERIAL_TRANSPORT
-static void
+/* Length-prefixed prefixes (ROM); 0 ends. First row is TLS record 22,3. */
+static const unsigned char rejtbl[] = {
+  2, 22, 3,
+  4, 'S', 'S', 'H', '-',
+  5, 'P', 'R', 'I', ' ', '*',
+  4, 'G', 'E', 'T', ' ',
+  4, 'P', 'U', 'T', ' ',
+  5, 'P', 'O', 'S', 'T', ' ',
+  5, 'H', 'E', 'A', 'D', ' ',
+  6, 'P', 'A', 'T', 'C', 'H', ' ',
+  7, 'D', 'E', 'L', 'E', 'T', 'E', ' ',
+  8, 'O', 'P', 'T', 'I', 'O', 'N', 'S', ' ',
+  8, 'C', 'O', 'N', 'N', 'E', 'C', 'T', ' ',
+  0
+};
+
+static unsigned char
+reject_non_telnet(const unsigned char *p, unsigned int len)
+{
+  const unsigned char *t;
+  unsigned char n;
+  unsigned char i;
+
+  for(t = rejtbl; (n = *t++) != 0u; ) {
+    if(len >= (unsigned int)n) {
+      for(i = 0u; i < n; ++i) {
+        if(p[i] != t[i]) {
+          goto nomatch;
+        }
+      }
+      return 1u;
+    }
+  nomatch:
+    t += n;
+  }
+  return 0u;
+}
+
+static unsigned char
 newdata(void)
 {
-  telnetd_feed((const unsigned char *)uip_appdata, (unsigned int)uip_datalen());
+  unsigned int len;
+  const unsigned char *p;
+
+  len = (unsigned int)uip_datalen();
+  p = (const unsigned char *)uip_appdata;
+
+  /* Before shell_start(): bbs_locked==0 uniquely means "accepted tcp, awaiting first telnet payload". */
+  if(len > 0u && uip_conn == primary_conn && s.connected != 0u && bbs_locked == 0u) {
+    if(reject_non_telnet(p, len)) {
+      s.connected = 0;
+      primary_conn = NULL;
+      uip_close();
+      tcp_markconn(uip_conn, NULL);
+      return 1;
+    }
+    shell_start();
+  }
+
+  telnetd_feed(p, len);
+  return 0;
 }
-#endif
 /*---------------------------------------------------------------------------*/
-#ifndef BBS_SERIAL_TRANSPORT
 void
 telnetd_appcall(void *ts)
 {
@@ -790,11 +846,22 @@ telnetd_appcall(void *ts)
     return;
   }
 
-  /* Secondary/extra connection reject state:
-     send queued reject text, then close on the next uIP poll.
-     Marked with (char*)1 so we don't run the primary shell teardown paths. */
-  if(ts != (void *)0) {
+  /* Busy/reject conn: marked (char*)1 after uip_send. Close on ACK, but if peer
+     never ACKs idle-only stacks stall here — (char*)2 after one poll, then force close. */
+  if(ts == (char *)1) {
     if(uip_acked()) {
+      uip_close();
+      tcp_markconn(uip_conn, NULL);
+    } else if(uip_poll()) {
+      tcp_markconn(uip_conn, (char *)2);
+    }
+    return;
+  }
+  if(ts == (char *)2) {
+    if(uip_acked()) {
+      uip_close();
+      tcp_markconn(uip_conn, NULL);
+    } else if(uip_poll()) {
       uip_close();
       tcp_markconn(uip_conn, NULL);
     }
@@ -809,7 +876,6 @@ telnetd_appcall(void *ts)
       s.state = STATE_NORMAL;
       s.connected = 1;
       primary_conn = uip_conn;
-      shell_start();
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
       ts = (char *)0;
     } else {
@@ -831,14 +897,18 @@ telnetd_appcall(void *ts)
     if(uip_closed() ||
         uip_aborted() ||
         uip_timedout()) {
-      log_message("\x9e", "telnetd stop");
+      if(bbs_locked != 0u) {
+        log_message("\x9e", "telnetd stop");
+      }
       update_time();
 
   	  if(bbs_status.login==1){
     		save_stats();
     		bbs_status.login=0;
   	  }
-      shell_stop();
+      if(bbs_locked != 0u) {
+        shell_stop();
+      }
       primary_conn = NULL;
     }
     if(uip_acked()) {
@@ -847,7 +917,9 @@ telnetd_appcall(void *ts)
     }
     if(uip_newdata()) {
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
-      newdata();
+      if(newdata()) {
+        return;
+      }
     }
     if(uip_rexmit() ||
         uip_newdata() ||
