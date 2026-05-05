@@ -869,6 +869,11 @@ telnetd_appcall(void *ts)
   }
 
   if(uip_connected()) {
+    /* Recover wedge: teardown must only null primary_conn when THAT conn closed;
+       secondaries clearing primary left s.connected=1 → perpetual busy. */
+    if(s.connected != 0u && primary_conn == NULL) {
+      s.connected = 0u;
+    }
     if(!s.connected) {
       buf_init();
       s.bufptr = 0;
@@ -897,19 +902,24 @@ telnetd_appcall(void *ts)
     if(uip_closed() ||
         uip_aborted() ||
         uip_timedout()) {
-      if(bbs_locked != 0u) {
-        log_message("\x9e", "telnetd stop");
-      }
-      update_time();
+      /* Only the primary uip_conn owns shell/BBS state. A secondary that finished
+       * busy/reject has ts NULL here too — must not clear primary_conn. */
+      if(primary_conn != NULL && uip_conn == primary_conn) {
+        if(bbs_locked != 0u) {
+          log_message("\x9e", "telnetd stop");
+        }
+        update_time();
 
-  	  if(bbs_status.login==1){
-    		save_stats();
-    		bbs_status.login=0;
-  	  }
-      if(bbs_locked != 0u) {
-        shell_stop();
+        if(bbs_status.login == 1) {
+          save_stats();
+          bbs_status.login = 0;
+        }
+        if(bbs_locked != 0u) {
+          shell_stop();
+        }
+        primary_conn = NULL;
+        s.connected = 0u;
       }
-      primary_conn = NULL;
     }
     if(uip_acked()) {
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
