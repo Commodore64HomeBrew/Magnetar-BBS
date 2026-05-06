@@ -49,6 +49,13 @@ void telnetd_gui_quit(void);
 void telnetd_quit(void);
 /* Ask tcpip to run telnetd_appcall soon (e.g. after user quit sets STATE_CLOSE). */
 void telnetd_kick_disconnect(void);
+#ifdef BBS_SERIAL_TRANSPORT
+/* Push outbound ring toward UART so bulk cbm_read into buf isn't capped prematurely. */
+void bbs_serial_drain_wire(void);
+/* Nesting count: serial poll discards RX while >0 unless STATUS_STREAM (movies). */
+void bbs_serial_banner_begin(void);
+void bbs_serial_banner_end(void);
+#endif
 
 int buf_append(const char *data, int len);
 

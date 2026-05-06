@@ -70,7 +70,14 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
   log_message("\x9fread: ", file);
 
   //log_message("[debug] ", file);
+#ifdef BBS_SERIAL_TRANSPORT
+  bbs_serial_banner_begin();
+#endif
   buf_compact();
+#ifdef BBS_SERIAL_TRANSPORT
+  /* Single cbm_read is capped by free ring space; push pending TX out first. */
+  bbs_serial_drain_wire();
+#endif
   ptr = (unsigned short)buf.used;
 
   sprintf(file, "%s:%s%s",filePrefix, szBannerFile, fileSuffix);
@@ -204,6 +211,9 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
 
   //Turn on the screen again
   poke(0xd011, peek(0xd011) | 0x10);
+#ifdef BBS_SERIAL_TRANSPORT
+  bbs_serial_banner_end();
+#endif
 }
 
 /*---------------------------------------------------------------------------*/

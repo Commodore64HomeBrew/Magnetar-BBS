@@ -131,8 +131,9 @@ static struct uip_conn *primary_conn;
 /* 1 until first inbound segment is consumed (HTTP-ish probe vs telnet). */
 static unsigned char telnetd_tcp_firstrx;
 #else
-/* After hangup, wait for first serial byte before opening a new session. */
+/* 1 until first inbound byte opens session (like TCP: no shell until peer talks). */
 static unsigned char serial_waiting_peer;
+static unsigned char serial_banner_depth;
 static void telnetd_serial_on_connect(void);
 static void telnetd_serial_disconnect(void);
 static unsigned int telnetd_serial_write(const void *vd, unsigned int len);
@@ -375,6 +376,7 @@ telnetd_serial_disconnect(void)
   }
   shell_stop();
   s.connected = 0;
+  serial_waiting_peer = 1u;
 }
 /*---------------------------------------------------------------------------*/
 static unsigned int
@@ -451,6 +453,35 @@ telnetd_serial_tx(void)
   }
 }
 /*---------------------------------------------------------------------------*/
+void
+bbs_serial_drain_wire(void)
+{
+  unsigned int n;
+
+  if(s.connected == 0u) {
+    return;
+  }
+  for(n = 0u; n < 320u && buf_free_bytes() < 900u; ++n) {
+    telnetd_serial_tx();
+  }
+}
+/*---------------------------------------------------------------------------*/
+void
+bbs_serial_banner_begin(void)
+{
+  if(serial_banner_depth < 255u) {
+    ++serial_banner_depth;
+  }
+}
+/*---------------------------------------------------------------------------*/
+void
+bbs_serial_banner_end(void)
+{
+  if(serial_banner_depth > 0u) {
+    --serial_banner_depth;
+  }
+}
+/*---------------------------------------------------------------------------*/
 static void
 telnetd_serial_poll_io(void)
 {
@@ -458,15 +489,19 @@ telnetd_serial_poll_io(void)
   unsigned char sg;
 
   while((sg = ser_get((char *)&c)) != SER_ERR_NO_DATA) {
-    /* Non-empty result that isn't OK frames a hard line fault / hang-up. */
     if(sg != SER_ERR_OK) {
-      if(s.connected != 0u && serial_waiting_peer == 0u) {
-        s.state = STATE_CLOSE;
-      }
       break;
     }
+    /* While a banner file is in the outbound path, drop RX (same as TCP: no input
+     * during bulk send). Movies use STATUS_STREAM — keep accepting Return to stop. */
+    if(serial_banner_depth > 0u && bbs_status.status != STATUS_STREAM) {
+      continue;
+    }
     if(serial_waiting_peer != 0u) {
-      /* New session after prior disconnect (carrier may be up mid-poll loop). */
+      /* Discard modem noise; open session on telnet lead (IAC) or first line break. */
+      if((unsigned char)c != TELNET_IAC && c != ISO_cr && c != ISO_nl) {
+        continue;
+      }
       serial_waiting_peer = 0u;
       telnetd_serial_on_connect();
     }
@@ -474,18 +509,19 @@ telnetd_serial_poll_io(void)
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
       telnetd_feed(&c, 1u);
     }
+    if(s.state == STATE_CLOSE) {
+      break;
+    }
   }
 
-  /* Must run before the connected==0 return: bbs_unlock leaves connected=1
-   * until here so graceful quit ('q') can arm serial_waiting_peer. */
   if(s.state == STATE_CLOSE && s.connected != 0u) {
     s.state = STATE_NORMAL;
-    serial_waiting_peer = 1u;
     if(bbs_locked != 0u) {
       telnetd_serial_disconnect();
     } else {
       buf_init();
       s.connected = 0u;
+      serial_waiting_peer = 1u;
     }
     return;
   }
@@ -499,11 +535,19 @@ telnetd_serial_poll_io(void)
     s.state = STATE_NORMAL;
   }
 
-  telnetd_serial_tx();
+  {
+    unsigned int u;
+
+    for(u = 0u; u < 64u; ++u) {
+      if(buf.used == 0u && bbs_status.status != STATUS_STREAM) {
+        break;
+      }
+      telnetd_serial_tx();
+    }
+  }
 
   if(timer_expired(&silence_timer)) {
     telnetd_serial_disconnect();
-    serial_waiting_peer = 1u;
   }
 }
 #endif /* BBS_SERIAL_TRANSPORT */
@@ -531,8 +575,6 @@ PROCESS_THREAD(telnetd_process, ev, data)
     }
   }
 #else
-  /* Wait for first RX before shell_start(); avoids locked session/red border at
-   * boot before a bridge or modem has attached. Same path as post-disconnect. */
   serial_waiting_peer = 1u;
 
   while(1) {
