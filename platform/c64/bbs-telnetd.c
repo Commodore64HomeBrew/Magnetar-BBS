@@ -128,12 +128,14 @@ static void telnetd_feed(const unsigned char *ptr, unsigned int len);
    This BBS shell is single-session; keep the active/primary uip_conn here
    so a secondary connection can't stop/steal the global shell state. */
 static struct uip_conn *primary_conn;
+/* 1 until first inbound segment is consumed (HTTP-ish probe vs telnet). */
+static unsigned char telnetd_tcp_firstrx;
 #else
 /* After hangup, wait for first serial byte before opening a new session. */
 static unsigned char serial_waiting_peer;
 static void telnetd_serial_on_connect(void);
 static void telnetd_serial_disconnect(void);
-static void telnetd_serial_write(const void *vd, unsigned int len);
+static unsigned int telnetd_serial_write(const void *vd, unsigned int len);
 static void telnetd_serial_tx(void);
 #endif
 
@@ -375,18 +377,23 @@ telnetd_serial_disconnect(void)
   s.connected = 0;
 }
 /*---------------------------------------------------------------------------*/
-static void
+static unsigned int
 telnetd_serial_write(const void *vd, unsigned int len)
 {
   const unsigned char *q = (const unsigned char *)vd;
+  unsigned int written;
 
+  written = 0;
   while(len != 0u) {
-    while(ser_put((char)*q) == SER_ERR_OVERFLOW) {
-      ;
+    /* Never spin forever on CTS / TX full. Write what we can and retry next tick. */
+    if(ser_put((char)*q) == SER_ERR_OVERFLOW) {
+      break;
     }
     ++q;
     --len;
+    ++written;
   }
+  return written;
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -395,9 +402,10 @@ telnetd_serial_tx(void)
   if(bbs_status.status == STATUS_STREAM) {
     sd_len = cbm_read(10, &sd_c, bbs_status.speed);
     if(sd_len > 0) {
-      telnetd_serial_write(sd_c, sd_len);
-      s.numsent = sd_len;
-      timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
+      s.numsent = telnetd_serial_write(sd_c, (unsigned int)sd_len);
+      if(s.numsent > 0) {
+        timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
+      }
     } else {
       bbs_status.status = STATUS_LOCK;
       s.numsent = 0;
@@ -418,7 +426,7 @@ telnetd_serial_tx(void)
       if(sd_len > first) {
         sd_len = first;
       }
-      telnetd_serial_write(&buf.bufmem[buf.head], sd_len);
+      sd_len = telnetd_serial_write(&buf.bufmem[buf.head], sd_len);
     }
     s.numsent = sd_len;
     if(s.numsent > 0) {
@@ -435,6 +443,7 @@ telnetd_serial_poll_io(void)
 
   while(ser_get((char *)&c) != SER_ERR_NO_DATA) {
     if(serial_waiting_peer != 0u) {
+      /* New session after prior disconnect (carrier may be up mid-poll loop). */
       serial_waiting_peer = 0u;
       telnetd_serial_on_connect();
     }
@@ -487,6 +496,8 @@ PROCESS_THREAD(telnetd_process, ev, data)
     }
   }
 #else
+  /* Start first session immediately so greeting/prompt is sent without waiting
+   * for inbound data; after disconnect, poll_io waits for a byte before reopen. */
   serial_waiting_peer = 0u;
   telnetd_serial_on_connect();
 
@@ -811,16 +822,21 @@ newdata(void)
   len = (unsigned int)uip_datalen();
   p = (const unsigned char *)uip_appdata;
 
-  /* Before shell_start(): bbs_locked==0 uniquely means "accepted tcp, awaiting first telnet payload". */
-  if(len > 0u && uip_conn == primary_conn && s.connected != 0u && bbs_locked == 0u) {
-    if(reject_non_telnet(p, len)) {
-      s.connected = 0;
-      primary_conn = NULL;
-      uip_close();
-      tcp_markconn(uip_conn, NULL);
-      return 1;
+  /* HTTP-ish probe on first segment only (shell already started at accept). */
+  if(len > 0u && uip_conn == primary_conn && s.connected != 0u) {
+    if(telnetd_tcp_firstrx != 0u) {
+      telnetd_tcp_firstrx = 0u;
+      if(reject_non_telnet(p, len) != 0u) {
+        if(bbs_locked != 0u) {
+          shell_stop();
+        }
+        s.connected = 0;
+        primary_conn = NULL;
+        uip_close();
+        tcp_markconn(uip_conn, NULL);
+        return 1;
+      }
     }
-    shell_start();
   }
 
   telnetd_feed(p, len);
@@ -882,6 +898,8 @@ telnetd_appcall(void *ts)
       s.connected = 1;
       primary_conn = uip_conn;
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
+      telnetd_tcp_firstrx = 1u;
+      shell_start();
       ts = (char *)0;
     } else {
       uip_send(telnetd_reject_text, strlen(telnetd_reject_text));
