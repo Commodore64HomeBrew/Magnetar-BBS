@@ -32,7 +32,7 @@
 /* Outbound queue; must exceed uip MSS (~536) for smooth output. */
 #ifndef BBS_BUFFER_SIZE
 /* 1267: ~233 B below previous 1500 — keeps C64 BSS within ld65 limit with current feature set. */
-#define BBS_BUFFER_SIZE    	1267
+#define BBS_BUFFER_SIZE    	1500
 #endif
 
 #ifdef BBS_SERIAL_TRANSPORT

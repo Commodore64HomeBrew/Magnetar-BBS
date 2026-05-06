@@ -8,6 +8,9 @@ endif
 #
 # --- BBS_SERIAL=1 only: magnetar-serial.c64 ---------------------------------------
 # No Contiki TCP/uIP on the C64. SwiftLink raw serial; host runs telnet/TCP bridge.
+# Outbound/post sizes use bbs-defs.h defaults (same as RR-Net: BBS_BUFFER_SIZE 1267,
+# BBS_POST_BUFFER_SIZE 1500); do not override BBS_BUFFER_SIZE here or banners/prompts
+# truncate when the ring fills.
 #
 ifeq ($(strip $(BBS_SERIAL)),1)
 CONTIKI_PROJECT := magnetar-serial
@@ -17,7 +20,6 @@ CONTIKI_WITH_RIME := 0
 CONTIKI_WITH_RPL := 0
 BBS_HEADLESS := 1
 DEFINES := TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,STATIC_DRIVER=c64_swlink_ser
-CFLAGS += -DBBS_BUFFER_SIZE=768
 else
 # Default program name; links full IPv4 + uIP + tcpip (RR-Net style deployment).
 CONTIKI_PROJECT := contiki-bbs

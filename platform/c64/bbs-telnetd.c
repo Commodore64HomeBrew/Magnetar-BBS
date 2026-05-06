@@ -399,40 +399,55 @@ telnetd_serial_write(const void *vd, unsigned int len)
 static void
 telnetd_serial_tx(void)
 {
-  if(bbs_status.status == STATUS_STREAM) {
-    sd_len = cbm_read(10, &sd_c, bbs_status.speed);
-    if(sd_len > 0) {
-      s.numsent = telnetd_serial_write(sd_c, (unsigned int)sd_len);
-      if(s.numsent > 0) {
-        timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
-      }
-    } else {
-      bbs_status.status = STATUS_LOCK;
-      s.numsent = 0;
-    }
-  } else {
-    if(buf.used == 0) {
-      sd_len = 0;
-    } else {
-      unsigned int chunk;
-      unsigned int first;
+  int nread;
 
-      chunk = (unsigned int)TELNETD_SERIAL_TX_CHUNK;
-      first = buf.size - buf.head;
-      sd_len = buf.used;
-      if(sd_len > chunk) {
-        sd_len = chunk;
+  /* Stream disk through the same ring as shell output so slow TX cannot drop
+   * bytes already read from cbm_read (fixes corrupt/truncated files). */
+  if(bbs_status.status == STATUS_STREAM) {
+    unsigned int room;
+
+    room = buf_free_bytes();
+    if(room != 0u) {
+      unsigned int nreq;
+
+      nreq = (unsigned int)bbs_status.speed;
+      if(nreq > room) {
+        nreq = room;
       }
-      if(sd_len > first) {
-        sd_len = first;
+      if(nreq > (unsigned int)MAX_STREAM_SPEED) {
+        nreq = (unsigned int)MAX_STREAM_SPEED;
       }
-      sd_len = telnetd_serial_write(&buf.bufmem[buf.head], sd_len);
+      nread = cbm_read(10, &sd_c, (int)nreq);
+      if(nread > 0) {
+        buf_append((const char *)sd_c, nread);
+      } else {
+        /* EOF (0) or read error (<0): unblock shell wait. */
+        bbs_status.status = STATUS_LOCK;
+      }
     }
-    s.numsent = sd_len;
-    if(s.numsent > 0) {
-      timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
-      buf_ack_sent((unsigned int)s.numsent);
+  }
+
+  if(buf.used == 0u) {
+    sd_len = 0;
+  } else {
+    unsigned int chunk;
+    unsigned int first;
+
+    chunk = (unsigned int)TELNETD_SERIAL_TX_CHUNK;
+    first = buf.size - buf.head;
+    sd_len = buf.used;
+    if(sd_len > chunk) {
+      sd_len = chunk;
     }
+    if(sd_len > first) {
+      sd_len = first;
+    }
+    sd_len = telnetd_serial_write(&buf.bufmem[buf.head], sd_len);
+  }
+  s.numsent = sd_len;
+  if(s.numsent > 0u) {
+    timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
+    buf_ack_sent((unsigned int)s.numsent);
   }
 }
 /*---------------------------------------------------------------------------*/
@@ -440,8 +455,16 @@ static void
 telnetd_serial_poll_io(void)
 {
   unsigned char c;
+  unsigned char sg;
 
-  while(ser_get((char *)&c) != SER_ERR_NO_DATA) {
+  while((sg = ser_get((char *)&c)) != SER_ERR_NO_DATA) {
+    /* Non-empty result that isn't OK frames a hard line fault / hang-up. */
+    if(sg != SER_ERR_OK) {
+      if(s.connected != 0u && serial_waiting_peer == 0u) {
+        s.state = STATE_CLOSE;
+      }
+      break;
+    }
     if(serial_waiting_peer != 0u) {
       /* New session after prior disconnect (carrier may be up mid-poll loop). */
       serial_waiting_peer = 0u;
@@ -453,15 +476,27 @@ telnetd_serial_poll_io(void)
     }
   }
 
+  /* Must run before the connected==0 return: bbs_unlock leaves connected=1
+   * until here so graceful quit ('q') can arm serial_waiting_peer. */
+  if(s.state == STATE_CLOSE && s.connected != 0u) {
+    s.state = STATE_NORMAL;
+    serial_waiting_peer = 1u;
+    if(bbs_locked != 0u) {
+      telnetd_serial_disconnect();
+    } else {
+      buf_init();
+      s.connected = 0u;
+    }
+    return;
+  }
+
   if(s.connected == 0u) {
     return;
   }
 
   if(s.state == STATE_CLOSE) {
+    /* Stale CLOSE after disconnect path cleared connected (idle/timer). */
     s.state = STATE_NORMAL;
-    telnetd_serial_disconnect();
-    serial_waiting_peer = 1u;
-    return;
   }
 
   telnetd_serial_tx();
@@ -496,10 +531,9 @@ PROCESS_THREAD(telnetd_process, ev, data)
     }
   }
 #else
-  /* Start first session immediately so greeting/prompt is sent without waiting
-   * for inbound data; after disconnect, poll_io waits for a byte before reopen. */
-  serial_waiting_peer = 0u;
-  telnetd_serial_on_connect();
+  /* Wait for first RX before shell_start(); avoids locked session/red border at
+   * boot before a bridge or modem has attached. Same path as post-disconnect. */
+  serial_waiting_peer = 1u;
 
   while(1) {
     telnetd_serial_poll_io();

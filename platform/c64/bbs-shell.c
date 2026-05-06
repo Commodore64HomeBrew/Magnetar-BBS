@@ -551,8 +551,9 @@ void bbs_unlock(void)
 
 
 
-  
+#ifndef BBS_SERIAL_TRANSPORT
   s.connected = 0;
+#endif
   bbs_status.status=STATUS_UNLOCK;
   bbs_locked=0;
   process_exit(&bbs_timer_process);
