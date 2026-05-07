@@ -733,6 +733,10 @@ PROCESS_THREAD(bbs_login_process, ev, data)
       switch (bbs_status.status) {
 
           case STATUS_UNLOCK: {
+            if(input->len1 <= 0 ||
+               (unsigned char)input->data1[0] < (unsigned char)' ') {
+              break;
+            }
 
 
             if(! strcmp(input->data1, "8")){
@@ -1651,9 +1655,6 @@ PROCESS_THREAD(shell_server_process, ev, data)
       p = data;
       if(p == front_process) {
         front_process = &shell_process;
-        if(bbs_status.status > STATUS_HANDLE) {
-          shell_prompt(bbs_status.prompt);
-        }
       }
       /*      printf("process exited '%s' (front '%s')\n", p->name,
 	      front_process->name);*/

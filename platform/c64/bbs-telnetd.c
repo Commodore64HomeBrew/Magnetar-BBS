@@ -367,9 +367,30 @@ telnetd_serial_on_connect(void)
   timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
 }
 /*---------------------------------------------------------------------------*/
+/* Hayes hangup — send on disconnect (logout, idle timeout, line drop). */
+static void
+telnetd_serial_modem_ath0(void)
+{
+  static const char seq[] = "ATH0\r";
+  unsigned int i;
+
+  if(s.connected == 0u) {
+    return;
+  }
+  for(i = 0u; i < sizeof(seq) - 1u; ++i) {
+    unsigned stall;
+    for(stall = 0u; stall < 512u && s.connected != 0u; ++stall) {
+      if(ser_put(seq[i]) != SER_ERR_OVERFLOW) {
+        break;
+      }
+    }
+  }
+}
+/*---------------------------------------------------------------------------*/
 static void
 telnetd_serial_disconnect(void)
 {
+  telnetd_serial_modem_ath0();
   log_message("\x9e", "telnetd stop");
   update_time();
 
@@ -522,6 +543,7 @@ telnetd_serial_poll_io(void)
     if(bbs_locked != 0u) {
       telnetd_serial_disconnect();
     } else {
+      telnetd_serial_modem_ath0();
       buf_init();
       s.connected = 0u;
       serial_waiting_peer = 1u;
