@@ -355,9 +355,46 @@ shell_exit(void)
 }*/
 /*---------------------------------------------------------------------------*/
 #ifdef BBS_SERIAL_TRANSPORT
+extern const struct ser_params magnetar_serial_params;
+
+static unsigned char telnetd_serial_hw_open;
+
+static unsigned char
+telnetd_serial_hw_ensure_open(void)
+{
+  if(telnetd_serial_hw_open != 0u) {
+    return 1u;
+  }
+  if(ser_open(&magnetar_serial_params) == SER_ERR_OK) {
+    telnetd_serial_hw_open = 1u;
+    return 1u;
+  }
+  return 0u;
+}
+
+static void
+telnetd_serial_hw_close_keep_offline(void)
+{
+  (void)ser_close();
+  telnetd_serial_hw_open = 0u;
+}
+
+/* 1 = modem reports no carrier (SER_STATUS_DCD means NOT DCD). */
+static unsigned char
+telnetd_serial_modem_offline_explicit(void)
+{
+  unsigned char st;
+
+  if(ser_status(&st) != SER_ERR_OK) {
+    return 0u;
+  }
+  return (((st & SER_STATUS_DCD) != 0u) ? 1u : 0u);
+}
+
 static void
 telnetd_serial_on_connect(void)
 {
+  (void)telnetd_serial_hw_ensure_open();
   buf_init();
   s.bufptr = 0;
   s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
@@ -367,30 +404,10 @@ telnetd_serial_on_connect(void)
   timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
 }
 /*---------------------------------------------------------------------------*/
-/* Hayes hangup — send on disconnect (logout, idle timeout, line drop). */
-static void
-telnetd_serial_modem_ath0(void)
-{
-  static const char seq[] = "ATH0\r";
-  unsigned int i;
-
-  if(s.connected == 0u) {
-    return;
-  }
-  for(i = 0u; i < sizeof(seq) - 1u; ++i) {
-    unsigned stall;
-    for(stall = 0u; stall < 512u && s.connected != 0u; ++stall) {
-      if(ser_put(seq[i]) != SER_ERR_OVERFLOW) {
-        break;
-      }
-    }
-  }
-}
-/*---------------------------------------------------------------------------*/
 static void
 telnetd_serial_disconnect(void)
 {
-  telnetd_serial_modem_ath0();
+  telnetd_serial_hw_close_keep_offline();
   log_message("\x9e", "telnetd stop");
   update_time();
 
@@ -511,6 +528,26 @@ telnetd_serial_poll_io(void)
   unsigned char c;
   unsigned char sg;
 
+  /* Pre-session: assert DTR only when modem reports carrier; else stay closed (DTR low). */
+  if(serial_waiting_peer != 0u && s.connected == 0u) {
+    if(telnetd_serial_hw_ensure_open() == 0u) {
+      return;
+    }
+    if(telnetd_serial_modem_offline_explicit() != 0u) {
+      telnetd_serial_hw_close_keep_offline();
+      return;
+    }
+  } else if(s.connected != 0u) {
+    if(telnetd_serial_hw_ensure_open() == 0u) {
+      telnetd_serial_disconnect();
+      return;
+    }
+    if(telnetd_serial_modem_offline_explicit() != 0u) {
+      telnetd_serial_disconnect();
+      return;
+    }
+  }
+
   while((sg = ser_get((char *)&c)) != SER_ERR_NO_DATA) {
     if(sg != SER_ERR_OK) {
       break;
@@ -543,7 +580,8 @@ telnetd_serial_poll_io(void)
     if(bbs_locked != 0u) {
       telnetd_serial_disconnect();
     } else {
-      telnetd_serial_modem_ath0();
+      /* bbs_unlock() clears bbs_locked before STATE_CLOSE; must still drop DTR. */
+      telnetd_serial_hw_close_keep_offline();
       buf_init();
       s.connected = 0u;
       serial_waiting_peer = 1u;
@@ -808,7 +846,6 @@ get_char(uint8_t c)
 			++s.bufptr;
 		}
 
-		bbs_status.msg_size += s.bufptr;
 		s.buf[(int)s.bufptr] = 0;
 		if(bbs_status.encoding==1){ascii_to_petscii(s.buf, TELNETD_CONF_LINELEN);}
 		//if(bbs_status.encoding==2){atascii_to_petscii(s.buf, TELNETD_CONF_LINELEN);}
