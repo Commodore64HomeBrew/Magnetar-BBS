@@ -26,18 +26,17 @@ extern BBS_USER_STATS bbs_usrstats;
 int read_msg(unsigned short num)
 {
     char sub_num_prefix[BBS_FILE_PATH_BUFLEN];
-    ST_FILE file;
+    char file[12];
 
     shell_output_str(NULL,PETSCII_LOWER, PETSCII_WHITE);
 
-    sprintf(file.szFileName, "%d-%d", bbs_status.board_id, num);
+    sprintf(file, "%d-%d", bbs_status.board_id, num);
     
     set_prompt();
     bbs_status.status=STATUS_READ;
 
-    file_path(file.szFileName, num, sub_num_prefix, sizeof(sub_num_prefix));
-    bbs_banner((unsigned char *)sub_num_prefix, file.szFileName, "", board.subs_device, bbs_status.wrap);
-
+    file_path(file, num, sub_num_prefix, sizeof(sub_num_prefix));
+    bbs_banner((unsigned char *)sub_num_prefix, file, "", board.subs_device, bbs_status.wrap);
 
     bbs_status.status=STATUS_LOCK;
 
@@ -91,7 +90,9 @@ PROCESS_THREAD(bbs_nextmsg_process, ev, data)
   unsigned short num;
 
   PROCESS_BEGIN();
+#ifdef BBS_SERIAL_TRANSPORT
   PROCESS_PAUSE();
+#endif
 
   num = bbs_usrstats.current_msg[bbs_status.board_id]+1;
 
@@ -115,7 +116,9 @@ PROCESS_THREAD(bbs_prevmsg_process, ev, data)
   unsigned short num;
 
   PROCESS_BEGIN();
+#ifdef BBS_SERIAL_TRANSPORT
   PROCESS_PAUSE();
+#endif
 
   num = bbs_usrstats.current_msg[bbs_status.board_id]-1;
 

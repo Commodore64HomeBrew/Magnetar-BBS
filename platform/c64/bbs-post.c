@@ -52,11 +52,8 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 	struct shell_input *input;
 	//static char post_buffer[BBS_MAX_MSGLINES*BBS_LINE_WIDTH];
 	char post_buffer[BBS_POST_BUFFER_SIZE];
-	unsigned short num;
-
-
-
-	ST_FILE file;
+	char msg_name[12];
+	char file_name[40];
 
 	PROCESS_BEGIN();
 	
@@ -80,8 +77,12 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 	
 
 	bbs_status.status=STATUS_SUBJ;
+	bbs_status.msg_size = 0u;
+	post_buffer[0] = '\0';
 	//bbs_status.msg_size=30;
+#ifdef BBS_SERIAL_TRANSPORT
 	PROCESS_PAUSE();
+#endif
 
 	while(1) {
 
@@ -103,9 +104,10 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 			}
 			if(nw >= (int)sizeof(post_buffer)) {
 				log_message("\x96", "post subject truncated");
+				nw = (int)sizeof(post_buffer) - 1;
 			}
 
-			bbs_status.msg_size = (unsigned short)strlen(post_buffer);
+			bbs_status.msg_size = (unsigned short)nw;
 
 
 			shell_output_str(&bbs_post_command, "\r\n\r\nOn empty line:\r\n/a=abort /s=save\r\n", "");
@@ -147,31 +149,22 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 
 			//write post
 			++bbs_config.msg_id[bbs_status.board_id];
-
-			num = bbs_config.msg_id[bbs_status.board_id];
-
-			
-		    sprintf(file.szFileName, "%d-%d", bbs_status.board_id, num);
+			sprintf(msg_name, "%d-%d", bbs_status.board_id,
+			        bbs_config.msg_id[bbs_status.board_id]);
+			file_path(msg_name, bbs_config.msg_id[bbs_status.board_id],
+			          file_name, sizeof(file_name));
+			sprintf(file_name, "%s:%d-%d", file_name, bbs_status.board_id,
+			        bbs_config.msg_id[bbs_status.board_id]);
 
 			log_message("", post_buffer);
-			log_message("\x99write: ", file.szFileName);
-
-			{
-			  char pathbuf[BBS_FILE_PATH_BUFLEN];
-			  file_path(file.szFileName, num, pathbuf, sizeof(pathbuf));
-			  sprintf(file.szFileName, "%s:%d-%d", pathbuf,
-				  bbs_status.board_id, bbs_config.msg_id[bbs_status.board_id]);
-			}
+			log_message("\x99write: ", file_name);
 
 			//Save the post to file:
-			cbm_save (file.szFileName, board.subs_device, &post_buffer, bbs_status.msg_size);
+			cbm_save(file_name, board.subs_device, post_buffer, bbs_status.msg_size);
 
 			//Save the msg count struct to disk
-			sprintf(file.szFileName, "@%s:%s", board.sys_prefix, BBS_CFG_FILE);
-			cbm_save (file.szFileName, board.sys_device, &bbs_config, sizeof(bbs_config));
-
-			//Clear the buffer:
-			memset(post_buffer, 0, sizeof(post_buffer));
+			sprintf(file_name, "@%s:%s", board.sys_prefix, BBS_CFG_FILE);
+			cbm_save(file_name, board.sys_device, &bbs_config, sizeof(bbs_config));
 
 			//Increment the users msgs posted total:
 			++bbs_usrstats.num_msgs;
@@ -186,15 +179,17 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 		}
 
 		else {
-			size_t cur, room, chunk;
+			unsigned short cur;
+			unsigned short room;
+			unsigned short chunk;
 
-			cur = strlen(post_buffer);
-			if(cur >= (size_t)BBS_POST_BUFFER_SIZE - 1u) {
+			cur = bbs_status.msg_size;
+			if(cur >= (unsigned short)(BBS_POST_BUFFER_SIZE - 1u)) {
 				log_message("\x96", "post buffer full");
 				continue;
 			}
-			room = (size_t)BBS_POST_BUFFER_SIZE - 1u - cur;
-			chunk = (size_t)input->len1;
+			room = (unsigned short)(BBS_POST_BUFFER_SIZE - 1u - cur);
+			chunk = (unsigned short)input->len1;
 			if(chunk > room) {
 				chunk = room;
 				log_message("\x96", "post line truncated");

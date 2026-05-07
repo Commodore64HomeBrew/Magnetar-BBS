@@ -131,7 +131,7 @@ static void telnetd_feed(const unsigned char *ptr, unsigned int len);
    This BBS shell is single-session; keep the active/primary uip_conn here
    so a secondary connection can't stop/steal the global shell state. */
 static struct uip_conn *primary_conn;
-/* 1 until first inbound segment is consumed (HTTP-ish probe vs telnet). */
+/* 1 until first inbound segment is consumed (probe reject check). */
 static unsigned char telnetd_tcp_firstrx;
 #else
 /* 1 until first inbound byte opens session (like TCP: no shell until peer talks). */
@@ -913,25 +913,20 @@ telnetd_feed(const unsigned char *ptr, unsigned int len)
 }
 
 #ifndef BBS_SERIAL_TRANSPORT
-/* Length-prefixed prefixes (ROM); 0 ends. First row is TLS record 22,3. */
-static const unsigned char rejtbl[] = {
-  2, 22, 3,
-  4, 'S', 'S', 'H', '-',
-  5, 'P', 'R', 'I', ' ', '*',
-  4, 'G', 'E', 'T', ' ',
-  4, 'P', 'U', 'T', ' ',
-  5, 'P', 'O', 'S', 'T', ' ',
-  5, 'H', 'E', 'A', 'D', ' ',
-  6, 'P', 'A', 'T', 'C', 'H', ' ',
-  7, 'D', 'E', 'L', 'E', 'T', 'E', ' ',
-  8, 'O', 'P', 'T', 'I', 'O', 'N', 'S', ' ',
-  8, 'C', 'O', 'N', 'N', 'E', 'C', 'T', ' ',
-  0
-};
-
 static unsigned char
 reject_non_telnet(const unsigned char *p, unsigned int len)
 {
+  /* Common probe signatures only: TLS, SSH, and primary HTTP verbs. */
+  static const unsigned char rejtbl[] = {
+    2, 22, 3,
+    4, 'S', 'S', 'H', '-',
+    4, 'G', 'E', 'T', ' ',
+    4, 'P', 'U', 'T', ' ',
+    5, 'P', 'O', 'S', 'T', ' ',
+    5, 'H', 'E', 'A', 'D', ' ',
+    5, 'P', 'R', 'I', ' ', '*',
+    0
+  };
   const unsigned char *t;
   unsigned char n;
   unsigned char i;
@@ -945,7 +940,7 @@ reject_non_telnet(const unsigned char *p, unsigned int len)
       }
       return 1u;
     }
-  nomatch:
+nomatch:
     t += n;
   }
   return 0u;
@@ -960,7 +955,6 @@ newdata(void)
   len = (unsigned int)uip_datalen();
   p = (const unsigned char *)uip_appdata;
 
-  /* HTTP-ish probe on first segment only (shell already started at accept). */
   if(len > 0u && uip_conn == primary_conn && s.connected != 0u) {
     if(telnetd_tcp_firstrx != 0u) {
       telnetd_tcp_firstrx = 0u;
