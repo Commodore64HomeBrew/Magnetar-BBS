@@ -212,6 +212,7 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
   //Turn on the screen again
   poke(0xd011, peek(0xd011) | 0x10);
 #ifdef BBS_SERIAL_TRANSPORT
+  bbs_serial_flush_outbound();
   bbs_serial_banner_end();
 #endif
 }

@@ -56,6 +56,12 @@ PROCESS(bbs_timer_process, "timer");
 PROCESS(bbs_login_process, "login");
 SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_process);
 
+#ifdef BBS_SERIAL_TRANSPORT
+/* post_synch from telnet flush would re-enter a child PT (e.g. prevmsg/read); defer with process_post. */
+static char shell_serial_input_line[TELNETD_CONF_LINELEN + 1];
+static struct shell_input shell_serial_input_holder;
+#endif
+
 //PROCESS(shell_killall_process, "killall");
 //SHELL_COMMAND(killall_command, "killall", "killall : stop all running commands", &shell_killall_process);
 
@@ -325,7 +331,15 @@ void system_stats(void)
 	//(d+=m<3?y--:y-2,23*m/9+d+4+y/4-y/100+y/400)%7  
 
 
-	stats_days = bbs_status.width - 2;
+	{
+	unsigned short cw;
+
+	cw = (unsigned short)bbs_status.width;
+	if(cw < 3u) {
+		cw = 3u;
+	}
+	stats_days = (unsigned char)(cw - 2u);
+	}
 	if(stats_days > BBS_STATS_DAYS) {
 		stats_days = BBS_STATS_DAYS;
 	}
@@ -819,14 +833,13 @@ PROCESS_THREAD(bbs_login_process, ev, data)
           case STATUS_PASSWD: {
             if(! strcmp(input->data1, bbs_user.user_pwd)) {
 
-				system_stats();
-
-				//Add current caller to callers list:
 				bbs_sysstats.caller_ptr++;
 				if(bbs_sysstats.caller_ptr>=BBS_STATS_USRS){
 					bbs_sysstats.caller_ptr=0;
 				}
 				strcpy(bbs_sysstats.last_callers[bbs_sysstats.caller_ptr], bbs_user.user_name);
+
+				system_stats();
 
               	shell_output_str(NULL, "\r\nhit return to continue", "");
 				bbs_status.status=STATUS_STATS;
@@ -855,14 +868,13 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             if(! strcmp(input->data1, "y") || ! strcmp(input->data1, "Y")){
               bbs_save_user();
 
-				system_stats();
-
-				//Add current caller to callers list:
 				bbs_sysstats.caller_ptr++;
 				if(bbs_sysstats.caller_ptr>=BBS_STATS_USRS){
 					bbs_sysstats.caller_ptr=0;
 				}
 				strcpy(bbs_sysstats.last_callers[bbs_sysstats.caller_ptr], bbs_user.user_name);
+
+				system_stats();
 
               	shell_output_str(NULL, "\r\nhit return to continue", "");
 				bbs_status.status=STATUS_STATS;
@@ -881,6 +893,11 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             }
             break;
           }
+          case STATUS_LOCK:
+            break;
+
+          default:
+            break;
 
        }
     }
@@ -996,6 +1013,7 @@ PROCESS_THREAD(bbs_timer_process, ev, data)
 PROCESS_THREAD(version_process, ev, data)
 {
   PROCESS_BEGIN();
+  PROCESS_PAUSE();
 
     bbs_splash(BBS_MODE_SHELL);
 
@@ -1005,6 +1023,7 @@ PROCESS_THREAD(version_process, ev, data)
 PROCESS_THREAD(sys_stats_process, ev, data)
 {
   PROCESS_BEGIN();
+  PROCESS_PAUSE();
 
 	system_stats();
 
@@ -1014,6 +1033,7 @@ PROCESS_THREAD(sys_stats_process, ev, data)
 PROCESS_THREAD(usr_stats_process, ev, data)
 {
   PROCESS_BEGIN();
+  PROCESS_PAUSE();
 
     user_stats();
 
@@ -1023,6 +1043,7 @@ PROCESS_THREAD(usr_stats_process, ev, data)
 PROCESS_THREAD(info_process, ev, data)
 {
   PROCESS_BEGIN();
+  PROCESS_PAUSE();
 
 	bbs_banner(board.sys_prefix, BBS_BANNER_INFO, bbs_status.encoding_suffix, board.sys_device,0);
 
@@ -1131,6 +1152,9 @@ PROCESS_THREAD(movie_process, ev, data)
 
 
 
+#ifdef BBS_SERIAL_TRANSPORT
+		bbs_serial_flush_outbound();
+#endif
         	s.numsent = 0;
         	cbm_close(10);
         	//Change boarder back to red
@@ -1156,6 +1180,7 @@ PROCESS_THREAD(help_command_process, ev, data)
 {
   struct shell_command *c;
   PROCESS_BEGIN();
+  PROCESS_PAUSE();
 
   shell_output_str(&help_command, "available commands:", "");
   for(c = list_head(commands);
@@ -1214,6 +1239,7 @@ PROCESS_THREAD(settime_process, ev, data)
   unsigned short num;
   char message[40];
   PROCESS_BEGIN();
+  PROCESS_PAUSE();
 
   update_time();
   sprintf(message,"%d:%d %d/%d/%d\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day,  bbs_time.month, bbs_time.year);
@@ -1440,6 +1466,9 @@ void
 shell_input(char *commandline, int commandline_len)
 {
   struct shell_input input;
+#ifdef BBS_SERIAL_TRANSPORT
+  int postres;
+#endif
 
   /*  printf("shell_input front_process '%s'\n", front_process->name);*/
 
@@ -1451,12 +1480,43 @@ shell_input(char *commandline, int commandline_len)
   //    process_exit(front_process);
   //  }
   //} else {
+    if(!process_is_running(front_process)) {
+      front_process = &shell_process;
+    }
     if(process_is_running(front_process)) {
       input.data1 = commandline;
       input.len1 = commandline_len;
       input.data2 = "";
       input.len2 = 0;
+#ifdef BBS_SERIAL_TRANSPORT
+      {
+	int clen;
+
+	clen = commandline_len;
+	if(clen > TELNETD_CONF_LINELEN) {
+	  clen = TELNETD_CONF_LINELEN;
+	}
+	memcpy(shell_serial_input_line, commandline, (unsigned int)clen);
+	shell_serial_input_line[clen] = '\0';
+	shell_serial_input_holder.data1 = shell_serial_input_line;
+	shell_serial_input_holder.len1 = clen;
+	shell_serial_input_holder.data2 = "";
+	shell_serial_input_holder.len2 = 0;
+	postres = process_post(front_process, shell_event_input,
+		     &shell_serial_input_holder);
+	if(postres != PROCESS_ERR_OK) {
+	  front_process = &shell_process;
+	  shell_serial_input_holder.data1 = shell_serial_input_line;
+	  shell_serial_input_holder.len1 = clen;
+	  shell_serial_input_holder.data2 = "";
+	  shell_serial_input_holder.len2 = 0;
+	  (void)process_post(front_process, shell_event_input,
+			&shell_serial_input_holder);
+	}
+      }
+#else
       process_post_synch(front_process, shell_event_input, &input);
+#endif
     }
     if(process_is_running(&bbs_timer_process)) {
       process_post(&bbs_timer_process, shell_event_input, NULL);
@@ -1557,9 +1617,9 @@ PROCESS_THREAD(shell_process, ev, data)
 				&started_process);
       if(started_process != NULL && ret == SHELL_FOREGROUND && process_is_running(started_process)) {
         front_process = started_process;
-        PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_EXITED && data == started_process);
+      } else {
+	front_process = &shell_process;
       }
-      front_process = &shell_process;
     }
 
     if (ev == PROCESS_EVENT_TIMER){
@@ -1567,7 +1627,7 @@ PROCESS_THREAD(shell_process, ev, data)
       shell_stop();
       //bbs_unlock();
     }
-    if(bbs_status.status>STATUS_HANDLE) {
+    if(bbs_status.status>STATUS_HANDLE && front_process == &shell_process) {
       //etimer_set(&bbs_session_timer, BBS_SESSION_TIMEOUT);
       shell_prompt(bbs_status.prompt);
     }
@@ -1589,6 +1649,12 @@ PROCESS_THREAD(shell_server_process, ev, data)
     PROCESS_WAIT_EVENT();
     if(ev == PROCESS_EVENT_EXITED) {
       p = data;
+      if(p == front_process) {
+        front_process = &shell_process;
+        if(bbs_status.status > STATUS_HANDLE) {
+          shell_prompt(bbs_status.prompt);
+        }
+      }
       /*      printf("process exited '%s' (front '%s')\n", p->name,
 	      front_process->name);*/
       for(c = list_head(commands);

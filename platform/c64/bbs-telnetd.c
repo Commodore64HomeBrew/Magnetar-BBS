@@ -114,6 +114,9 @@ unsigned int sd_len;
 
 #define TELNETD_LAST_SPACE_NONE 255u
 
+/* After CR-ended line, absorb one following LF (Telnet NVT / CRLF bridges). */
+static unsigned char telnetd_ignore_lf_after_cr;
+
 //static struct telnetd_buf buf;
 static struct timer silence_timer;
 
@@ -461,7 +464,7 @@ bbs_serial_drain_wire(void)
   if(s.connected == 0u) {
     return;
   }
-  for(n = 0u; n < 320u && buf_free_bytes() < 900u; ++n) {
+  for(n = 0u; n < 48u && buf_free_bytes() < 900u; ++n) {
     telnetd_serial_tx();
   }
 }
@@ -477,9 +480,8 @@ bbs_serial_banner_begin(void)
 void
 bbs_serial_banner_end(void)
 {
-  if(serial_banner_depth > 0u) {
-    --serial_banner_depth;
-  }
+  /* Hard reset to avoid stale depth blocking RX forever. */
+  serial_banner_depth = 0u;
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -494,7 +496,8 @@ telnetd_serial_poll_io(void)
     }
     /* While a banner file is in the outbound path, drop RX (same as TCP: no input
      * during bulk send). Movies use STATUS_STREAM — keep accepting Return to stop. */
-    if(serial_banner_depth > 0u && bbs_status.status != STATUS_STREAM) {
+    if(serial_banner_depth > 0u && buf.used != 0u
+       && bbs_status.status != STATUS_STREAM) {
       continue;
     }
     if(serial_waiting_peer != 0u) {
@@ -538,7 +541,7 @@ telnetd_serial_poll_io(void)
   {
     unsigned int u;
 
-    for(u = 0u; u < 64u; ++u) {
+    for(u = 0u; u < 24u; ++u) {
       if(buf.used == 0u && bbs_status.status != STATUS_STREAM) {
         break;
       }
@@ -548,6 +551,28 @@ telnetd_serial_poll_io(void)
 
   if(timer_expired(&silence_timer)) {
     telnetd_serial_disconnect();
+  }
+}
+/*---------------------------------------------------------------------------*/
+void
+bbs_serial_flush_outbound(void)
+{
+  unsigned int stall;
+  unsigned int prev_used;
+
+  if(s.connected == 0u) {
+    return;
+  }
+  /* TX-only flush: avoid nested RX/shell re-entry while waiting for wire drain. */
+  stall = 0u;
+  while(buf.used != 0u && s.connected != 0u && stall < 65535u) {
+    prev_used = buf.used;
+    telnetd_serial_tx();
+    if(buf.used < prev_used) {
+      stall = 0u;
+    } else {
+      ++stall;
+    }
   }
 }
 #endif /* BBS_SERIAL_TRANSPORT */
@@ -613,6 +638,13 @@ get_char(uint8_t c)
 		return;
 	}
 
+	if(c == ISO_nl && telnetd_ignore_lf_after_cr != 0u) {
+		telnetd_ignore_lf_after_cr = 0u;
+		return;
+	}
+	if(c != ISO_nl && c != ISO_cr) {
+		telnetd_ignore_lf_after_cr = 0u;
+	}
 
 	/* Issue 6: echo 1 and 2 share the same line editor (wrap, DEL, column).
 	   Mode 2 used to only ++col_num per byte and never wrapped at width. */
@@ -733,7 +765,11 @@ get_char(uint8_t c)
 	}
 
 	//if(s.bufptr == sizeof(s.buf) || c == ISO_cr || c == ISO_nl) {
-	if(s.bufptr == TELNETD_CONF_LINELEN || c == ISO_cr) {
+	if(s.bufptr == TELNETD_CONF_LINELEN || c == ISO_cr || c == ISO_nl) {
+
+		if(c == ISO_cr) {
+			telnetd_ignore_lf_after_cr = 1u;
+		}
 
 		if(bbs_status.status!=STATUS_POST){
 		  if((c == ISO_cr) && s.bufptr>1){
@@ -742,6 +778,10 @@ get_char(uint8_t c)
 		  }
 		}
 		else if(c == ISO_cr){
+			s.buf[(int)s.bufptr] = ISO_nl;
+			++s.bufptr;
+		}
+		else if(c == ISO_nl) {
 			s.buf[(int)s.bufptr] = ISO_nl;
 			++s.bufptr;
 		}

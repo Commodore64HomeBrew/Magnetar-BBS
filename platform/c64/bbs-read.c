@@ -91,6 +91,7 @@ PROCESS_THREAD(bbs_nextmsg_process, ev, data)
   unsigned short num;
 
   PROCESS_BEGIN();
+  PROCESS_PAUSE();
 
   num = bbs_usrstats.current_msg[bbs_status.board_id]+1;
 
@@ -114,6 +115,7 @@ PROCESS_THREAD(bbs_prevmsg_process, ev, data)
   unsigned short num;
 
   PROCESS_BEGIN();
+  PROCESS_PAUSE();
 
   num = bbs_usrstats.current_msg[bbs_status.board_id]-1;
 

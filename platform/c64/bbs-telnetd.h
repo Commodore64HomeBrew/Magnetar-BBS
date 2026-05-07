@@ -52,6 +52,8 @@ void telnetd_kick_disconnect(void);
 #ifdef BBS_SERIAL_TRANSPORT
 /* Push outbound ring toward UART so bulk cbm_read into buf isn't capped prematurely. */
 void bbs_serial_drain_wire(void);
+/* Drain until outbound ring empty (modem caught up); call before clearing banner RX discard. */
+void bbs_serial_flush_outbound(void);
 /* Nesting count: serial poll discards RX while >0 unless STATUS_STREAM (movies). */
 void bbs_serial_banner_begin(void);
 void bbs_serial_banner_end(void);

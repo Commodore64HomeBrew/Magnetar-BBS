@@ -87,6 +87,7 @@ SHELL_COMMAND(bbs_nextboard_command, "+", "+ : next msg board", &bbs_nextboard_p
 PROCESS_THREAD(bbs_nextboard_process, ev, data)
 {
   PROCESS_BEGIN();
+  PROCESS_PAUSE();
 
   if(bbs_status.board_id < board.max_boards){
 
@@ -108,6 +109,7 @@ SHELL_COMMAND(bbs_prevboard_command, "-", "- : previous msg board", &bbs_prevboa
 PROCESS_THREAD(bbs_prevboard_process, ev, data)
 {
   PROCESS_BEGIN();
+  PROCESS_PAUSE();
 
   if(bbs_status.board_id > 1){
 
