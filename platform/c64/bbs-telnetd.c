@@ -1081,7 +1081,8 @@ telnetd_appcall(void *ts)
   }
 
   if(!ts) {
-    if(s.state == STATE_CLOSE) {
+    /* Logoff banner queued in ring; FIN only after outbound ring drains. */
+    if(s.state == STATE_CLOSE && buf.used == 0u) {
       s.state = STATE_NORMAL;
       uip_close();
       return;
@@ -1164,8 +1165,10 @@ telnetd_appcall(void *ts)
     }
     if(uip_poll()) {
       if(timer_expired(&silence_timer)) {
-        uip_close();
-        tcp_markconn(uip_conn, NULL);
+        if(s.state != STATE_CLOSE || buf.used == 0u) {
+          uip_close();
+          tcp_markconn(uip_conn, NULL);
+        }
       }
     }
   }
