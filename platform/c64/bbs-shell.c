@@ -510,12 +510,8 @@ void save_stats(void)
 	cbm_save (file, board.userstats_device, &bbs_usrstats, sizeof(bbs_usrstats));
 
   	//log_message("\x96stats file saved for: ", bbs_user.user_name);
- 
-        sprintf(message,"%d:%d %d/%d/%d - %s - %d,%d - %d,%d,%d,%d,%d,%d,%d,%d\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day, bbs_time.month, bbs_time.year, bbs_user.user_name, bbs_status.encoding, bbs_status.width, bbs_config.msg_id[1],bbs_config.msg_id[2],bbs_config.msg_id[3],bbs_config.msg_id[4],bbs_config.msg_id[5],bbs_config.msg_id[6],bbs_config.msg_id[7],bbs_config.msg_id[8]);
-
-        //cbm_open(4, 4, 7, "");
-        cbm_write(4, message, strlen(message));
-        //cbm_close(4);
+	sprintf(message,"%d:%d %d/%d/%d - %s - %d,%d - %d,%d,%d,%d,%d,%d,%d,%d\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day, bbs_time.month, bbs_time.year, bbs_user.user_name, bbs_status.encoding, bbs_status.width, bbs_config.msg_id[1],bbs_config.msg_id[2],bbs_config.msg_id[3],bbs_config.msg_id[4],bbs_config.msg_id[5],bbs_config.msg_id[6],bbs_config.msg_id[7],bbs_config.msg_id[8]);
+	cbm_write(4, message, strlen(message));
 }
 /*---------------------------------------------------------------------------*/
 /*void bbs_log(char *message ){
@@ -560,14 +556,12 @@ void bbs_unlock(void)
   poke(0xd011, peek(0xd011) | 0x10);
 
   //Clean up any open files
-  s.numsent = 0;	
+  /* Do not zero s.numsent: ACK processing still drains buf via buf_ack_sent(numsent).
+     Clearing it mid-logout retriggers the same outbound bytes → duplicate/garbled art. */
   cbm_close(10);
 
 
 
-#ifndef BBS_SERIAL_TRANSPORT
-  s.connected = 0;
-#endif
   bbs_status.status=STATUS_UNLOCK;
   bbs_locked=0;
   process_exit(&bbs_timer_process);
@@ -1017,7 +1011,9 @@ PROCESS_THREAD(bbs_timer_process, ev, data)
 PROCESS_THREAD(version_process, ev, data)
 {
   PROCESS_BEGIN();
+#ifdef BBS_SERIAL_TRANSPORT
   PROCESS_PAUSE();
+#endif
 
     bbs_splash(BBS_MODE_SHELL);
 
@@ -1027,7 +1023,9 @@ PROCESS_THREAD(version_process, ev, data)
 PROCESS_THREAD(sys_stats_process, ev, data)
 {
   PROCESS_BEGIN();
+#ifdef BBS_SERIAL_TRANSPORT
   PROCESS_PAUSE();
+#endif
 
 	system_stats();
 
@@ -1037,7 +1035,9 @@ PROCESS_THREAD(sys_stats_process, ev, data)
 PROCESS_THREAD(usr_stats_process, ev, data)
 {
   PROCESS_BEGIN();
+#ifdef BBS_SERIAL_TRANSPORT
   PROCESS_PAUSE();
+#endif
 
     user_stats();
 
@@ -1047,7 +1047,9 @@ PROCESS_THREAD(usr_stats_process, ev, data)
 PROCESS_THREAD(info_process, ev, data)
 {
   PROCESS_BEGIN();
+#ifdef BBS_SERIAL_TRANSPORT
   PROCESS_PAUSE();
+#endif
 
 	bbs_banner(board.sys_prefix, BBS_BANNER_INFO, bbs_status.encoding_suffix, board.sys_device,0);
 
@@ -1184,7 +1186,9 @@ PROCESS_THREAD(help_command_process, ev, data)
 {
   struct shell_command *c;
   PROCESS_BEGIN();
+#ifdef BBS_SERIAL_TRANSPORT
   PROCESS_PAUSE();
+#endif
 
   shell_output_str(&help_command, "available commands:", "");
   for(c = list_head(commands);
@@ -1243,7 +1247,9 @@ PROCESS_THREAD(settime_process, ev, data)
   unsigned short num;
   char message[40];
   PROCESS_BEGIN();
+#ifdef BBS_SERIAL_TRANSPORT
   PROCESS_PAUSE();
+#endif
 
   update_time();
   sprintf(message,"%d:%d %d/%d/%d\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day,  bbs_time.month, bbs_time.year);

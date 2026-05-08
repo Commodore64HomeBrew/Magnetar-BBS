@@ -172,6 +172,8 @@ buf_init(void)
   buf.head = 0;
   buf.used = 0;
   buf.size = BBS_BUFFER_SIZE;
+  /* No pending TCP acknowledgement window into the drained ring */
+  s.numsent = 0;
 }
 
 /*---------------------------------------------------------------------------*/
