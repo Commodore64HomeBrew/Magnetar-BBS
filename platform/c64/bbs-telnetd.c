@@ -865,6 +865,7 @@ get_char(uint8_t c)
 		shell_input(s.buf, s.bufptr);
 		s.bufptr = 0;
 		s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
+		col_num = 0;
 
 	}
 
