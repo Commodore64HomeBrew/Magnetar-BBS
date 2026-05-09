@@ -1175,7 +1175,7 @@ PROCESS_THREAD(movie_process, ev, data)
          //shell_output_str(NULL, "hit return to stop stream once playing\n\r", "");
 
 	set_prompt();
-	//shell_prompt(bbs_status.prompt);
+	shell_prompt(bbs_status.prompt);
 
 	//PROCESS_EXIT();
 	PROCESS_END();

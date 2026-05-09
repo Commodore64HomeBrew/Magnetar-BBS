@@ -124,6 +124,16 @@ TELNETD_STATE s;
 
 BBS_BUFFER buf;
 
+PROCESS_NAME(movie_process);
+
+/* Stream hits EOF while movie PT waits in PROCESS_YIELD_UNTIL; POLL resumes it */
+static void
+bbs_notice_stream_eof(void)
+{
+  bbs_status.status = STATUS_LOCK;
+  process_poll(&movie_process);
+}
+
 static void telnetd_feed(const unsigned char *ptr, unsigned int len);
 
 #ifndef BBS_SERIAL_TRANSPORT
@@ -467,7 +477,7 @@ telnetd_serial_tx(void)
         buf_append((const char *)sd_c, nread);
       } else {
         /* EOF (0) or read error (<0): unblock shell wait. */
-        bbs_status.status = STATUS_LOCK;
+        bbs_notice_stream_eof();
       }
     }
   }
@@ -1135,7 +1145,7 @@ telnetd_appcall(void *ts)
 		s.numsent = bbs_status.speed;
 	}
 	else{
-		bbs_status.status = STATUS_LOCK;
+		bbs_notice_stream_eof();
 		//uip_send(&cr,1);
 	}
       }
