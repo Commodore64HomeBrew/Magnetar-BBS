@@ -114,6 +114,17 @@ unsigned int sd_len;
 
 #define TELNETD_LAST_SPACE_NONE 255u
 
+/* PETSCII line editor soft-wrap (one row tracker per wrapped screen row) */
+#define TELWRAP_MAX_ROWS TELNETD_CONF_NUMLINES
+static unsigned char telwrap_bp[TELWRAP_MAX_ROWS];
+static unsigned char telwrap_tail_col[TELWRAP_MAX_ROWS];
+static unsigned char telwrap_tr;
+
+#define TELWRAP_LINE_RESET() do { \
+	telwrap_tr = 0; \
+	telwrap_bp[0] = 0u; \
+} while(0)
+
 /* After CR-ended line, absorb one following LF (Telnet NVT / CRLF bridges). */
 static unsigned char telnetd_ignore_lf_after_cr;
 
@@ -174,6 +185,86 @@ telnetd_rescan_last_space(void)
 	}
 }
 
+/*---------------------------------------------------------------------------*/
+static unsigned short
+telwrap_trim_end_exc(unsigned short rs, unsigned short ex)
+{
+	unsigned short bx;
+
+	bx = ex;
+	while(bx > rs && BWS_WORD_BREAK((unsigned char)s.buf[(int)(bx - 1u)]) != 0u) {
+		--bx;
+	}
+	return bx;
+}
+
+/*---------------------------------------------------------------------------*/
+static unsigned char
+telwrap_sim_cols(unsigned short rs, unsigned short ex, unsigned char wmax)
+{
+	unsigned char sim;
+	unsigned short j;
+
+	sim = 0;
+	for(j = rs; j < ex; ++j) {
+		unsigned char ch;
+
+		ch = (unsigned char)s.buf[(int)j];
+		if(ch == ISO_cr || ch == ISO_nl) {
+			sim = 0;
+			continue;
+		}
+		if(ch == PETSCII_UP || ch == PETSCII_DOWN || ch == PETSCII_LEFT ||
+		    ch == PETSCII_RIGHT || ch == PETSCII_CLRSCN || ch == PETSCII_HOME) {
+			continue;
+		}
+		if(ch == 0x09u) {
+			if(sim < wmax) {
+				++sim;
+			}
+		} else if(TELNETD_COL1_CELL(ch)) {
+			++sim;
+		}
+	}
+	if(sim > wmax && wmax != 0u) {
+		sim = wmax - 1u;
+	}
+	return sim;
+}
+
+static unsigned char
+telwrap_ttl_trimmed(unsigned short rs, unsigned short ex)
+{
+	return telwrap_sim_cols(rs, telwrap_trim_end_exc(rs, ex),
+	    (unsigned char)bbs_status.width);
+}
+
+/*---------------------------------------------------------------------------*/
+static void
+telwrap_fixup_delete(unsigned char del_idx)
+{
+	unsigned char k;
+
+	for(k = telwrap_tr; k != 0u; --k) {
+		if(telwrap_bp[k] > del_idx) {
+			--telwrap_bp[k];
+		}
+	}
+}
+
+/*---------------------------------------------------------------------------*/
+static void
+telwrap_commit_row_finish(unsigned char tail_col_final, unsigned char next_first_idx)
+{
+	if(bbs_status.echo != 1u)
+		return;
+	telwrap_tail_col[telwrap_tr] = tail_col_final;
+	if(telwrap_tr + 1u < TELWRAP_MAX_ROWS) {
+		++telwrap_tr;
+		telwrap_bp[telwrap_tr] = next_first_idx;
+	}
+}
+
 
 /*---------------------------------------------------------------------------*/
 static void
@@ -184,6 +275,7 @@ buf_init(void)
   buf.size = BBS_BUFFER_SIZE;
   /* No pending TCP acknowledgement window into the drained ring */
   s.numsent = 0;
+  TELWRAP_LINE_RESET();
 }
 
 /*---------------------------------------------------------------------------*/
@@ -718,65 +810,100 @@ get_char(uint8_t c)
 		telnetd_ignore_lf_after_cr = 0u;
 	}
 
-	/* Issue 6: echo 1 and 2 share the same line editor (wrap, DEL, column).
-	   Mode 2 used to only ++col_num per byte and never wrapped at width. */
-	if(bbs_status.echo==1 || bbs_status.echo==2){
+	if(bbs_status.echo == 1u || bbs_status.echo == 2u) {
 
 		if (c == PETSCII_DEL){
 			if(s.bufptr>0){
 				unsigned char del_at;
+				unsigned char pop_mv;
 
 				del_at = s.bufptr - 1u;
+				pop_mv = 0u;
 				--s.bufptr;
 				s.buf[(int)s.bufptr] = 0;
+				if(bbs_status.echo == 1u) {
+					telwrap_fixup_delete(del_at);
+				}
 				if(s.last_space_at == del_at) {
 					telnetd_rescan_last_space();
 				}
 
-        (void)buf_putc_raw(c);
+				if(bbs_status.echo == 1u && telwrap_tr > 0u) {
+					unsigned char twb;
 
-        if(col_num>0){--col_num;}
+					twb = telwrap_bp[telwrap_tr];
+					if((unsigned int)s.bufptr == (unsigned int)twb ||
+					    ((unsigned int)s.bufptr == (unsigned int)twb + 1u &&
+					    BWS_WORD_BREAK(s.buf[(int)twb]) != 0u)) {
+						--telwrap_tr;
+						col_num = telwrap_tail_col[telwrap_tr];
+						pop_mv = 1u;
+					} else if(col_num > 0u) {
+						--col_num;
+					}
+				} else if(col_num > 0u) {
+					--col_num;
+				}
+
+				(void)buf_putc_raw(c);
+				if(pop_mv != 0u && bbs_status.encoding == 0u) {
+					unsigned char nsteps;
+
+					(void)buf_putc_raw(PETSCII_UP);
+					nsteps = col_num;
+					while(nsteps != 0u) {
+						(void)buf_putc_raw(PETSCII_RIGHT);
+						--nsteps;
+					}
+				}
 			}
-			return;	
+			return;
 		}
 
 		if(c==PETSCII_UP || c==PETSCII_DOWN || c==PETSCII_LEFT || c==PETSCII_RIGHT || c==PETSCII_CLRSCN || c==PETSCII_HOME){
 			return;
 		}
 
-    //if (c > 0x1F && c < 0x80) || (c > 0x9F)
-
-
-		if(col_num>=bbs_status.width){
+		if(bbs_status.echo == 2u) {
+			if(col_num >= (unsigned char)bbs_status.width && c != ISO_cr &&
+			    c != ISO_nl &&
+			    (TELNETD_COL1_CELL((unsigned char)c) || (unsigned char)c == 0x09u)) {
+				(void)buf_putc_raw(cr);
+				col_num = 0;
+			}
+			(void)buf_putc_raw(c);
+			TELNETD_COL1_BUMP_AFTER_ECHO(c);
+		} else if(col_num>=bbs_status.width){
 
 			if(c == ISO_cr || c == ISO_nl) {
-				/* Issue 2: at right margin these were skipped by the inner
-				   wrap branch, so nothing was echoed while buffer logic still
-				   ran — desynced display from line state. */
 				(void)buf_putc_raw(c);
 				col_num = 0;
 			} else {
+				unsigned short rs;
 
-				if(BWS_WORD_BREAK(c))
-      			{
-					//jump to next line
-          (void)buf_putc_raw(c);
-          (void)buf_putc_raw(cr);
+				rs = (unsigned short)telwrap_bp[telwrap_tr];
 
-					col_num=0;
-				}
-				else
-      			{
-					/* Last committed char is at bufptr-1; c is not stored yet.
-					   bufptr was used as erase start (issue 1): extra DEL and
-					   s.buf[bufptr] was wrong index. Guard bufptr<1: no underread. */
+				if(BWS_WORD_BREAK(c)) {
+					unsigned char ttl;
+
+					ttl = telwrap_ttl_trimmed(rs, (unsigned short)s.bufptr);
+					/* Saved tail excludes margin break so POP aligns to last word end */
+					telwrap_commit_row_finish(ttl, (unsigned char)s.bufptr);
+					(void)buf_putc_raw(c);
+					(void)buf_putc_raw(cr);
+					col_num = 0;
+				} else {
+
 					if((int)s.bufptr < 1) {
+						telwrap_commit_row_finish(
+						    telwrap_ttl_trimmed(rs, (unsigned short)s.bufptr),
+						    (unsigned char)s.bufptr);
 						(void)buf_putc_raw(cr);
 						col_num = 0;
 						(void)buf_putc_raw(c);
 						TELNETD_COL1_BUMP_AFTER_ECHO(c);
 					} else {
-					/* Issue 4: use last_space_at to avoid O(n) backward scan. */
+
 					if(s.last_space_at != (unsigned char)TELNETD_LAST_SPACE_NONE
 					    && s.last_space_at < s.bufptr
 					    && BWS_WORD_BREAK(s.buf[(int)s.last_space_at])) {
@@ -800,12 +927,13 @@ get_char(uint8_t c)
 						i = 0;
 					}
 					}
-					/* Issue 7: with no word break in the buffer, the while stops
-					   at i==0 and never issues dl for s.buf[0] (i>0 is false).
-					   One extra del removes that last char from the old row. */
 					if(i == 0 && (int)s.bufptr > 0) {
 						(void)buf_putc_raw(dl);
 					}
+
+					telwrap_commit_row_finish(
+					    telwrap_ttl_trimmed(rs, (unsigned short)i),
+					    (unsigned char)i);
 
 					(void)buf_putc_raw(cr);
 					for(n = i; n < (int)s.bufptr; ++n) {
@@ -862,6 +990,7 @@ get_char(uint8_t c)
 		if(bbs_status.encoding==1){ascii_to_petscii(s.buf, TELNETD_CONF_LINELEN);}
 		//if(bbs_status.encoding==2){atascii_to_petscii(s.buf, TELNETD_CONF_LINELEN);}
 		//PRINTF("telnetd: get_char '%.*s'\n", s.bufptr, s.buf);
+		TELWRAP_LINE_RESET();
 		shell_input(s.buf, s.bufptr);
 		s.bufptr = 0;
 		s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
