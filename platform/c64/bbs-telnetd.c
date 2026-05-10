@@ -812,8 +812,8 @@ get_char(uint8_t c)
 
 	if(bbs_status.echo == 1u || bbs_status.echo == 2u) {
 
-		if (c == PETSCII_DEL){
-			if(s.bufptr>0){
+		if(c == PETSCII_DEL){
+			if(s.bufptr > 0u){
 				unsigned char del_at;
 				unsigned char pop_mv;
 
@@ -885,9 +885,13 @@ get_char(uint8_t c)
 
 				if(BWS_WORD_BREAK(c)) {
 					unsigned char ttl;
+					unsigned char w;
 
 					ttl = telwrap_ttl_trimmed(rs, (unsigned short)s.bufptr);
-					/* Saved tail excludes margin break so POP aligns to last word end */
+					w = (unsigned char)bbs_status.width;
+					/* +1 column: gap before continuation, as if words shared one line */
+					if(ttl < w)
+						++ttl;
 					telwrap_commit_row_finish(ttl, (unsigned char)s.bufptr);
 					(void)buf_putc_raw(c);
 					(void)buf_putc_raw(cr);
