@@ -6,6 +6,7 @@
  */
 
 #include "bbs-setup.h"
+#include "bbs-file.h"
 
 void clearScreen(void) {
 
@@ -156,8 +157,6 @@ void bbs_setup(){
 	//sprintf(board.userstats_prefix, "//u/s/");
 	sprintf(board.userstats_prefix, "//u/");
 
-	sprintf(file, "%s:%s",board.sys_prefix, BBS_CFG_FILE);
-
 	/* read BBS base configuration */
 
 	sprintf(board.sub_names[0], "magnetar bbs   ");
@@ -175,7 +174,7 @@ void bbs_setup(){
 
 
 	//Save system stats:
-	sprintf(file, "@%s:%s",board.sys_prefix, BBS_SETUP_FILE);
+	bbs_path_sys_at((char *)file, BBS_SETUP_FILE);
 	cbm_save (file, board.sys_device, &board, sizeof(board));
 
 }
@@ -191,7 +190,7 @@ void bbs_load_cfg_file(void){
 
   unsigned char i;
 
-  sprintf(file, "%s:%s",board.sys_prefix, BBS_CFG_FILE);
+  bbs_path_sys_colon((char *)file, BBS_CFG_FILE);
 
   cbm_open(10, board.sys_device, 10, file);
   cbm_read(10, &bbs_config, 2);
@@ -220,7 +219,7 @@ void bbs_stats(){
   unsigned char file[25];
 
   /* read BBS stats file */
-  sprintf(file, "%s:%s",board.sys_prefix, BBS_STATS_FILE);
+  bbs_path_sys_colon((char *)file, BBS_STATS_FILE);
 
   cbm_open(10, board.sys_device, 10, file);
   cbm_read(10, &bbs_sysstats, 2);

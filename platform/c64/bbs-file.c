@@ -219,6 +219,19 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
 
 /*---------------------------------------------------------------------------*/
 void
+bbs_path_sys_colon(char *out, const char *suffix)
+{
+  sprintf(out, "%s:%s", board.sys_prefix, suffix);
+}
+
+void
+bbs_path_sys_at(char *out, const char *suffix)
+{
+  sprintf(out, "@%s:%s", board.sys_prefix, suffix);
+}
+
+/*---------------------------------------------------------------------------*/
+void
 file_path(const char *file, unsigned short num, char *out, unsigned char outsz)
 {
   if(out == NULL || outsz < 2) {

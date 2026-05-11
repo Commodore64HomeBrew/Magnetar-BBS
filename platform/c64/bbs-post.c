@@ -163,7 +163,7 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 			cbm_save(file_name, board.subs_device, post_buffer, bbs_status.msg_size);
 
 			//Save the msg count struct to disk
-			sprintf(file_name, "@%s:%s", board.sys_prefix, BBS_CFG_FILE);
+			bbs_path_sys_at(file_name, BBS_CFG_FILE);
 			cbm_save(file_name, board.sys_device, &bbs_config, sizeof(bbs_config));
 
 			//Increment the users msgs posted total:

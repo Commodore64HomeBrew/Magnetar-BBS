@@ -35,6 +35,10 @@ void bbs_banner(unsigned char filePrefix[10], unsigned char szBannerFile[12], un
 /* Writes directory prefix for message num into out (NUL-terminated). outsz must be >= BBS_FILE_PATH_BUFLEN. */
 void file_path(const char *file, unsigned short num, char *out, unsigned char outsz);
 
+/* board.sys_prefix + ':' + suffix, or '@' + same (save-style paths). */
+void bbs_path_sys_colon(char *out, const char *suffix);
+void bbs_path_sys_at(char *out, const char *suffix);
+
 //void em_load(unsigned char filePrefix[10], unsigned char szBannerFile[12], unsigned char fileSuffix[3], unsigned char device, unsigned short file_num);
 //void em_out(unsigned short file_num);
 

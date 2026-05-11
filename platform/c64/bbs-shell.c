@@ -189,8 +189,6 @@ static void bbs_init(void)
 	board.userstats_device = 8;
 	sprintf(board.userstats_prefix, "//u/s/");
 
-	sprintf(file, "%s:%s",board.sys_prefix, BBS_CFG_FILE);
-
 	/* read BBS base configuration */
 
 	sprintf(board.sub_names[0], "devlog & issues");
@@ -228,7 +226,7 @@ static void bbs_init(void)
   //fsize = load_struct(&bbs_config, board.sys_prefix, BBS_CFG_FILE, board.sys_device);
   
   
-  sprintf(file, "%s:%s",board.sys_prefix, BBS_CFG_FILE);
+  bbs_path_sys_colon((char *)file, BBS_CFG_FILE);
 
   cbm_open(10, board.sys_device, 10, file);
   cbm_read(10, &bbs_config, 2);
@@ -259,7 +257,7 @@ static void bbs_init(void)
 
 
   /* read BBS stats file */
-  sprintf(file, "%s:%s",board.sys_prefix, BBS_STATS_FILE);
+  bbs_path_sys_colon((char *)file, BBS_STATS_FILE);
 
   cbm_open(10, board.sys_device, 10, file);
   cbm_read(10, &bbs_sysstats, 2);
@@ -502,7 +500,7 @@ void save_stats(void)
 	char message[80];
 
 	//Save system stats:
-	sprintf(file, "@%s:%s",board.sys_prefix, BBS_STATS_FILE);
+	bbs_path_sys_at((char *)file, BBS_STATS_FILE);
 	cbm_save (file, board.sys_device, &bbs_sysstats, sizeof(bbs_sysstats));
 
 	//Save user stats:
