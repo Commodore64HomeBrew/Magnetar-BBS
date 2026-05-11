@@ -186,29 +186,18 @@ telnetd_rescan_last_space(void)
 }
 
 /*---------------------------------------------------------------------------*/
-static unsigned short
-telwrap_trim_end_exc(unsigned short rs, unsigned short ex)
+/* Trim trailing word-breaks on [rs,ex), then column width of remainder. */
+static unsigned char
+telwrap_ttl_trimmed(unsigned short rs, unsigned short ex, unsigned char wmax)
 {
-	unsigned short bx;
-
+	unsigned short bx, j;
+	unsigned char sim, ch;
 	bx = ex;
 	while(bx > rs && BWS_WORD_BREAK((unsigned char)s.buf[(int)(bx - 1u)]) != 0u) {
 		--bx;
 	}
-	return bx;
-}
-
-/*---------------------------------------------------------------------------*/
-static unsigned char
-telwrap_sim_cols(unsigned short rs, unsigned short ex, unsigned char wmax)
-{
-	unsigned char sim;
-	unsigned short j;
-
 	sim = 0;
-	for(j = rs; j < ex; ++j) {
-		unsigned char ch;
-
+	for(j = rs; j < bx; ++j) {
 		ch = (unsigned char)s.buf[(int)j];
 		if(ch == ISO_cr || ch == ISO_nl) {
 			sim = 0;
@@ -230,13 +219,6 @@ telwrap_sim_cols(unsigned short rs, unsigned short ex, unsigned char wmax)
 		sim = wmax - 1u;
 	}
 	return sim;
-}
-
-static unsigned char
-telwrap_ttl_trimmed(unsigned short rs, unsigned short ex)
-{
-	return telwrap_sim_cols(rs, telwrap_trim_end_exc(rs, ex),
-	    (unsigned char)bbs_status.width);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -328,6 +310,17 @@ buf_putc_raw(unsigned char c)
 }
 
 /*---------------------------------------------------------------------------*/
+/* Copy n bytes from src into ring at dst_off; PETSCII→ASCII in place if needed. */
+static void
+buf_ring_write_conv(unsigned int dst_off, const void *src, unsigned int n)
+{
+  memcpy(&buf.bufmem[dst_off], src, n);
+  if(bbs_status.encoding == 1) {
+    petscii_to_ascii((char *)&buf.bufmem[dst_off], n);
+  }
+}
+
+/*---------------------------------------------------------------------------*/
 int
 buf_append(const char *data, int len)
 {
@@ -350,20 +343,12 @@ buf_append(const char *data, int len)
   contig = buf.size - dst0;
 
   if((unsigned int)copylen <= contig) {
-    memcpy(&buf.bufmem[dst0], data, (unsigned int)copylen);
-    if(bbs_status.encoding == 1) {
-      petscii_to_ascii((char *)&buf.bufmem[dst0], (unsigned int)copylen);
-    }
+    buf_ring_write_conv(dst0, data, (unsigned int)copylen);
   } else {
     first_part = contig;
-    memcpy(&buf.bufmem[dst0], data, first_part);
-    if(bbs_status.encoding == 1) {
-      petscii_to_ascii((char *)&buf.bufmem[dst0], first_part);
-    }
-    memcpy(buf.bufmem, data + first_part, (unsigned int)copylen - first_part);
-    if(bbs_status.encoding == 1) {
-      petscii_to_ascii((char *)buf.bufmem, (unsigned int)copylen - first_part);
-    }
+    buf_ring_write_conv(dst0, data, first_part);
+    buf_ring_write_conv(0u, data + first_part,
+        (unsigned int)copylen - first_part);
   }
   buf.used += (unsigned int)copylen;
 
@@ -832,9 +817,8 @@ get_char(uint8_t c)
 					unsigned char twb;
 
 					twb = telwrap_bp[telwrap_tr];
-					if((unsigned int)s.bufptr == (unsigned int)twb ||
-					    ((unsigned int)s.bufptr == (unsigned int)twb + 1u &&
-					    BWS_WORD_BREAK(s.buf[(int)twb]) != 0u)) {
+					/* POP only when row is empty; twb+1+break was false POP after first glyph. */
+					if((unsigned int)s.bufptr == (unsigned int)twb) {
 						--telwrap_tr;
 						col_num = telwrap_tail_col[telwrap_tr];
 						pop_mv = 1u;
@@ -880,15 +864,14 @@ get_char(uint8_t c)
 				col_num = 0;
 			} else {
 				unsigned short rs;
+				unsigned char w;
+				unsigned char ttl;
 
 				rs = (unsigned short)telwrap_bp[telwrap_tr];
+				w = (unsigned char)bbs_status.width;
 
 				if(BWS_WORD_BREAK(c)) {
-					unsigned char ttl;
-					unsigned char w;
-
-					ttl = telwrap_ttl_trimmed(rs, (unsigned short)s.bufptr);
-					w = (unsigned char)bbs_status.width;
+					ttl = telwrap_ttl_trimmed(rs, (unsigned short)s.bufptr, w);
 					/* +1 column: gap before continuation, as if words shared one line */
 					if(ttl < w)
 						++ttl;
@@ -900,7 +883,7 @@ get_char(uint8_t c)
 
 					if((int)s.bufptr < 1) {
 						telwrap_commit_row_finish(
-						    telwrap_ttl_trimmed(rs, (unsigned short)s.bufptr),
+						    telwrap_ttl_trimmed(rs, (unsigned short)s.bufptr, w),
 						    (unsigned char)s.bufptr);
 						(void)buf_putc_raw(cr);
 						col_num = 0;
@@ -935,9 +918,14 @@ get_char(uint8_t c)
 						(void)buf_putc_raw(dl);
 					}
 
-					telwrap_commit_row_finish(
-					    telwrap_ttl_trimmed(rs, (unsigned short)i),
-					    (unsigned char)i);
+					ttl = telwrap_ttl_trimmed(rs, (unsigned short)i, w);
+					/* +1 when row ends at word break (same idea as margin soft wrap). */
+					if(ttl < w && i > (int)rs &&
+					    (BWS_WORD_BREAK((unsigned char)s.buf[(int)i - 1]) != 0u ||
+					    ((unsigned short)i < (unsigned short)s.bufptr &&
+					    BWS_WORD_BREAK((unsigned char)s.buf[(int)i]) != 0u)))
+						++ttl;
+					telwrap_commit_row_finish(ttl, (unsigned char)i);
 
 					(void)buf_putc_raw(cr);
 					for(n = i; n < (int)s.bufptr; ++n) {
