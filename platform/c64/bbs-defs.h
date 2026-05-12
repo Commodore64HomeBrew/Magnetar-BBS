@@ -31,7 +31,7 @@
 
 /* Outbound queue; must exceed uip MSS (~536) for smooth output. */
 #ifndef BBS_BUFFER_SIZE
-/* 1267: ~233 B below previous 1500 — keeps C64 BSS within ld65 limit with current feature set. */
+/* Keep ring size equal to max post payload to avoid truncation surprises. */
 #define BBS_BUFFER_SIZE    	1500
 #endif
 
@@ -125,7 +125,14 @@
 #define PETSCII_REVON	0x12
 #define PETSCII_REVOFF	0x92
 
-
+/* PETSCII colour / mode bytes: zero terminal width (banner wrap + telnet soft wrap). */
+#define BBS_PETSCII_ATTR0(c) ( \
+	(unsigned char)(c) == 0x05u || (unsigned char)(c) == 0x1cu || \
+	(unsigned char)(c) == 0x1eu || (unsigned char)(c) == 0x1fu || \
+	(unsigned char)(c) == PETSCII_REVON || (unsigned char)(c) == PETSCII_REVOFF || \
+	(unsigned char)(c) == 0x81u || (unsigned char)(c) == 0x90u || \
+	((unsigned char)(c) >= 0x95u && (unsigned char)(c) <= 0x9cu) || \
+	(unsigned char)(c) == 0x9eu || (unsigned char)(c) == 0x9fu)
 
 #define poke(A,X) (*(unsigned short *)A) = (X)
 #define peek(A) (*(unsigned short *)A)
