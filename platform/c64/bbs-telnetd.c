@@ -156,6 +156,8 @@ static struct uip_conn *primary_conn;
 static unsigned char telnetd_tcp_firstrx;
 /* 1: unacked TCP payload came from STATUS_STREAM (sd_c), not the shell ring. */
 static unsigned char telnetd_tcp_stream_unacked;
+/* strlen(telnetd_reject_text) after optional PETSCII→ASCII in process init. */
+static int telnetd_reject_len;
 #else
 /* 1 until first inbound byte opens session (like TCP: no shell until peer talks). */
 static unsigned char serial_waiting_peer;
@@ -296,7 +298,9 @@ buf_init(void)
   buf.size = BBS_BUFFER_SIZE;
   /* No pending TCP acknowledgement window into the drained ring */
   s.numsent = 0;
+#ifndef BBS_SERIAL_TRANSPORT
   telnetd_tcp_stream_unacked = 0u;
+#endif
   TELWRAP_LINE_RESET();
 }
 
@@ -777,6 +781,7 @@ PROCESS_THREAD(telnetd_process, ev, data)
   }
 
 #ifndef BBS_SERIAL_TRANSPORT
+  telnetd_reject_len = (int)strlen(telnetd_reject_text);
   tcp_listen(UIP_HTONS(board.telnet_port));
 
   while(1) {
@@ -851,6 +856,8 @@ get_char(uint8_t c)
 					telnetd_rescan_last_space();
 				}
 
+				(void)buf_putc_raw(c);
+
 				if(bbs_status.echo == 1u && telwrap_tr > 0u &&
 				    (unsigned int)s.bufptr ==
 				    (unsigned int)telwrap_bp[(int)telwrap_tr]) {
@@ -859,8 +866,6 @@ get_char(uint8_t c)
 				} else if(col_num > 0u) {
 					--col_num;
 				}
-
-				(void)buf_putc_raw(c);
 			}
 			return;
 		}
@@ -1122,21 +1127,20 @@ newdata(void)
   len = (unsigned int)uip_datalen();
   p = (const unsigned char *)uip_appdata;
 
-  if(len > 0u && uip_conn == primary_conn && s.connected != 0u) {
-    if(telnetd_tcp_firstrx != 0u) {
-      telnetd_tcp_firstrx = 0u;
-      if(reject_non_telnet(p, len) != 0u) {
-        if(bbs_locked != 0u) {
-          shell_stop();
-        }
-        s.connected = 0;
-        primary_conn = NULL;
-        uip_close();
-        tcp_markconn(uip_conn, NULL);
-        return 1;
+  if(len > 0u && uip_conn == primary_conn && s.connected != 0u
+     && telnetd_tcp_firstrx != 0u) {
+    telnetd_tcp_firstrx = 0u;
+    if(reject_non_telnet(p, len) != 0u) {
+      if(bbs_locked != 0u) {
+        shell_stop();
       }
-      shell_start();
+      s.connected = 0;
+      primary_conn = NULL;
+      uip_close();
+      tcp_markconn(uip_conn, NULL);
+      return 1;
     }
+    shell_start_after_probe();
   }
 
   telnetd_feed(p, len);
@@ -1148,11 +1152,15 @@ telnetd_appcall(void *ts)
 {
   /* Secondary connection protection (single-session BBS):
      ignore anything not coming from the primary uip_conn. */
-  if(s.connected && primary_conn != NULL && uip_conn != primary_conn && ts == (void *)0) {
+  if(ts == (void *)0 && s.connected != 0u && primary_conn != NULL
+     && uip_conn != primary_conn) {
     if(uip_connected()) {
-      uip_send(telnetd_reject_text, strlen(telnetd_reject_text));
-      tcp_markconn(uip_conn, (char *)1);
-      tcpip_poll_tcp(primary_conn);
+      /* RST: one uIP pass vs busy-text + ACK + polls — less gap for primary stream. */
+      uip_abort();
+      tcp_markconn(uip_conn, NULL);
+      if(bbs_status.status == STATUS_STREAM) {
+        tcpip_poll_tcp(primary_conn);
+      }
     } else {
       /* Stale tcp after primary moved to another uip_conn (e.g. new login while
        * old socket not closed). uip_connected() is only true during SYN
@@ -1163,24 +1171,18 @@ telnetd_appcall(void *ts)
     return;
   }
 
-  /* Busy/reject conn: marked (char*)1 after uip_send. Close on ACK, but if peer
-     never ACKs idle-only stacks stall here — (char*)2 after one poll, then force close. */
-  if(ts == (char *)1) {
+  /* Busy/reject conn: marked (char*)1 after uip_send, (char*)2 after one poll. */
+  if(ts == (char *)1 || ts == (char *)2) {
     if(uip_acked()) {
       uip_close();
       tcp_markconn(uip_conn, NULL);
     } else if(uip_poll()) {
-      tcp_markconn(uip_conn, (char *)2);
-    }
-    return;
-  }
-  if(ts == (char *)2) {
-    if(uip_acked()) {
-      uip_close();
-      tcp_markconn(uip_conn, NULL);
-    } else if(uip_poll()) {
-      uip_close();
-      tcp_markconn(uip_conn, NULL);
+      if(ts == (char *)1) {
+        tcp_markconn(uip_conn, (char *)2);
+      } else {
+        uip_close();
+        tcp_markconn(uip_conn, NULL);
+      }
     }
     return;
   }
@@ -1192,6 +1194,10 @@ telnetd_appcall(void *ts)
       s.connected = 0u;
     }
     if(!s.connected) {
+      if(bbs_locked != 0u) {
+        /* Orphan shell lock without live TCP — avoid banner then "busy" on first RX. */
+        shell_stop();
+      }
       buf_init();
       s.bufptr = 0;
       s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
@@ -1200,14 +1206,18 @@ telnetd_appcall(void *ts)
       primary_conn = uip_conn;
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
       telnetd_tcp_firstrx = 1u;
+      shell_preconnect_banner();
       ts = (char *)0;
     } else {
-      uip_send(telnetd_reject_text, strlen(telnetd_reject_text));
-      /* Busy text only: mark non-NULL and close on next poll,
-         so the reject text can actually get transmitted. */
-      tcp_markconn(uip_conn, (char *)1);
-      tcpip_poll_tcp(primary_conn);
-      return;
+      if(uip_conn != primary_conn) {
+        uip_send(telnetd_reject_text, telnetd_reject_len);
+        /* Busy text only: mark non-NULL and close on next poll,
+           so the reject text can actually get transmitted. */
+        tcp_markconn(uip_conn, (char *)1);
+        tcpip_poll_tcp(primary_conn);
+        return;
+      }
+      /* Spurious duplicate uip_connected on primary — do not queue busy text here. */
     }
     tcp_markconn(uip_conn, ts);
   }
@@ -1285,10 +1295,7 @@ telnetd_appcall(void *ts)
       }
       else{
         /* Ring: send one contiguous run from head (up to MSS, up to wrap). */
-        if(telnetd_tcp_stream_unacked != 0u) {
-          /* Stream segment still on the wire; wait for ACK before ring data. */
-          sd_len = 0;
-        } else if(buf.used == 0) {
+        if(telnetd_tcp_stream_unacked != 0u || buf.used == 0u) {
           sd_len = 0;
         } else {
           unsigned int mss;

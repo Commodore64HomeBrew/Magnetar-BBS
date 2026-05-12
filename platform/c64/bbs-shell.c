@@ -1761,6 +1761,25 @@ shell_set_time(unsigned long seconds)
 }*/
 /*---------------------------------------------------------------------------*/
 void
+shell_preconnect_banner(void)
+{
+  shell_output_str(NULL, PETSCII_LOWER, board.board_name);
+  shell_prompt(BBS_ENCODING_STRING);
+}
+/*---------------------------------------------------------------------------*/
+void
+shell_start_after_probe(void)
+{
+  if(bbs_locked == 1) {
+    s.state = STATE_CLOSE;
+    log_message("\x96","busy");
+  } else {
+    bbs_lock();
+    front_process = &bbs_login_process;
+  }
+}
+/*---------------------------------------------------------------------------*/
+void
 shell_start(void)
 {
   /* set BBS parameters */
@@ -1769,19 +1788,14 @@ shell_start(void)
   process_start(&bbs_timer_process, NULL);*/
   
   if(bbs_locked == 1) {
-    //shell_exit(); //This disconnects the user!
+    /*shell_exit(); This disconnects the user! */
     s.state = STATE_CLOSE;
     log_message("\x96","busy");
   } else {
-    //bbs_locked=1;
     bbs_lock();
-
-    shell_output_str(NULL, PETSCII_LOWER, board.board_name);
-
-    shell_prompt(BBS_ENCODING_STRING);
-
-    front_process=&bbs_login_process;
-  } 
+    shell_preconnect_banner();
+    front_process = &bbs_login_process;
+  }
 
 
 }

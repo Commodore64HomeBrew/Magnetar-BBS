@@ -120,6 +120,9 @@ void shell_init(void);
  *
  */
 void shell_start(void);
+/* TCP: banner/prompt before first byte; HTTP rejects never call bbs_lock. */
+void shell_preconnect_banner(void);
+void shell_start_after_probe(void);
 
 /**
  * \brief      Send a line of input to the shell
