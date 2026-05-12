@@ -48,6 +48,10 @@
 
 
 
+#ifdef BBS_SERIAL_TRANSPORT
+#error "contiki-bbs.c is for the Ethernet/uIP (TCP) build only; use magnetar-serial.c for BBS_SERIAL_TRANSPORT."
+#endif
+
 #include "contiki-net.h"
 #include "bbs-telnetd.h"
 /* Only this file is built as .co with -DAUTOSTART_ENABLE; shell_init() in telnetd. */

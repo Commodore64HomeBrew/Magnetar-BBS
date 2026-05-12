@@ -408,6 +408,7 @@ buf_copyto(char *to, int len)
   memcpy(to, &buf.bufmem[0], len);
 }*/
 /*---------------------------------------------------------------------------*/
+#ifndef BBS_SERIAL_TRANSPORT
 void
 telnetd_quit(void)
 {
@@ -416,6 +417,7 @@ telnetd_quit(void)
   process_exit(&telnetd_process);
   LOADER_UNLOAD();
 }
+#endif /* !BBS_SERIAL_TRANSPORT */
 /*---------------------------------------------------------------------------*/
 /* After bbs_unlock (STATE_CLOSE), schedule a tcp poll so uip_close() runs soon
  * instead of waiting for the next inbound packet / timer. Must not allocate. */
@@ -433,6 +435,25 @@ telnetd_kick_disconnect(void)
 {
 }
 #endif /* BBS_SERIAL_TRANSPORT */
+
+void
+bbs_transport_session_close(void)
+{
+  s.state = STATE_CLOSE;
+  telnetd_kick_disconnect();
+}
+
+void
+bbs_transport_busy_reject(void)
+{
+  s.state = STATE_CLOSE;
+}
+
+void
+bbs_transport_stream_clear_sent(void)
+{
+  s.numsent = 0u;
+}
 /*---------------------------------------------------------------------------*/
 void
 shell_prompt(char *str)
@@ -1121,6 +1142,41 @@ nomatch:
   return 0u;
 }
 
+static void
+telnetd_tcp_drop_probe(void)
+{
+  if(bbs_locked != 0u) {
+    shell_stop();
+  }
+  s.connected = 0;
+  primary_conn = NULL;
+  uip_close();
+  tcp_markconn(uip_conn, NULL);
+}
+
+static void
+telnetd_tcp_secondary_busy(void)
+{
+  if(telnetd_tcp_busy_sent != 0u) {
+    uip_abort();
+    tcp_markconn(uip_conn, NULL);
+  } else {
+    uip_send(telnetd_reject_text, telnetd_reject_len);
+    tcp_markconn(uip_conn, (char *)1);
+    telnetd_tcp_busy_sent = 1u;
+  }
+  if(bbs_status.status == STATUS_STREAM) {
+    tcpip_poll_tcp(primary_conn);
+  }
+}
+
+static void
+telnetd_tcp_conn_uclose(void)
+{
+  uip_close();
+  tcp_markconn(uip_conn, NULL);
+}
+
 static unsigned char
 newdata(void)
 {
@@ -1134,13 +1190,7 @@ newdata(void)
      && telnetd_tcp_firstrx != 0u) {
     telnetd_tcp_firstrx = 0u;
     if(reject_non_telnet(p, len) != 0u) {
-      if(bbs_locked != 0u) {
-        shell_stop();
-      }
-      s.connected = 0;
-      primary_conn = NULL;
-      uip_close();
-      tcp_markconn(uip_conn, NULL);
+      telnetd_tcp_drop_probe();
       return 1;
     }
     shell_start_after_probe();
@@ -1153,57 +1203,38 @@ newdata(void)
 void
 telnetd_appcall(void *ts)
 {
-  /* Secondary connection protection (single-session BBS):
-     ignore anything not coming from the primary uip_conn. */
+  /* Non-primary uip_conn: busy/RST or stale close. */
   if(ts == (void *)0 && s.connected != 0u && primary_conn != NULL
      && uip_conn != primary_conn) {
     if(uip_connected()) {
-      if(telnetd_tcp_busy_sent != 0u) {
-        uip_abort();
-        tcp_markconn(uip_conn, NULL);
-      } else {
-        uip_send(telnetd_reject_text, telnetd_reject_len);
-        tcp_markconn(uip_conn, (char *)1);
-        telnetd_tcp_busy_sent = 1u;
-      }
-      if(bbs_status.status == STATUS_STREAM) {
-        tcpip_poll_tcp(primary_conn);
-      }
+      telnetd_tcp_secondary_busy();
     } else {
-      /* Stale tcp after primary moved to another uip_conn (e.g. new login while
-       * old socket not closed). uip_connected() is only true during SYN
-       * handshake; idle sessions must be closed explicitly. */
-      uip_close();
-      tcp_markconn(uip_conn, NULL);
+      telnetd_tcp_conn_uclose();
     }
     return;
   }
 
-  /* Busy/reject conn: marked (char*)1 after uip_send, (char*)2 after one poll. */
+  /* Busy conn: ts (char*)1 uip_send path, (char*)2 force close. */
   if(ts == (char *)1 || ts == (char *)2) {
     if(uip_acked()) {
-      uip_close();
-      tcp_markconn(uip_conn, NULL);
+      telnetd_tcp_conn_uclose();
     } else if(uip_poll()) {
       if(ts == (char *)1) {
         tcp_markconn(uip_conn, (char *)2);
       } else {
-        uip_close();
-        tcp_markconn(uip_conn, NULL);
+        telnetd_tcp_conn_uclose();
       }
     }
     return;
   }
 
   if(uip_connected()) {
-    /* Recover wedge: teardown must only null primary_conn when THAT conn closed;
-       secondaries clearing primary left s.connected=1 → perpetual busy. */
+    /* s.connected && !primary_conn: wedge fix. */
     if(s.connected != 0u && primary_conn == NULL) {
       s.connected = 0u;
     }
     if(!s.connected) {
       if(bbs_locked != 0u) {
-        /* Orphan shell lock without live TCP — avoid banner then "busy" on first RX. */
         shell_stop();
       }
       buf_init();
@@ -1214,7 +1245,6 @@ telnetd_appcall(void *ts)
       primary_conn = uip_conn;
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
       telnetd_tcp_firstrx = 1u;
-      /* Piggyback GET/TLS/etc. on SYN-ACK: reject before preconnect (no PETSCII to browser). */
       if(uip_newdata() != 0u) {
         unsigned int plen;
         const unsigned char *pp;
@@ -1222,13 +1252,7 @@ telnetd_appcall(void *ts)
         plen = (unsigned int)uip_datalen();
         pp = (const unsigned char *)uip_appdata;
         if(reject_non_telnet(pp, plen) != 0u) {
-          if(bbs_locked != 0u) {
-            shell_stop();
-          }
-          s.connected = 0;
-          primary_conn = NULL;
-          uip_close();
-          tcp_markconn(uip_conn, NULL);
+          telnetd_tcp_drop_probe();
           return;
         }
       }
@@ -1236,17 +1260,7 @@ telnetd_appcall(void *ts)
       ts = (char *)0;
     } else {
       if(uip_conn != primary_conn) {
-        if(telnetd_tcp_busy_sent != 0u) {
-          uip_abort();
-          tcp_markconn(uip_conn, NULL);
-        } else {
-          uip_send(telnetd_reject_text, telnetd_reject_len);
-          tcp_markconn(uip_conn, (char *)1);
-          telnetd_tcp_busy_sent = 1u;
-        }
-        if(bbs_status.status == STATUS_STREAM) {
-          tcpip_poll_tcp(primary_conn);
-        }
+        telnetd_tcp_secondary_busy();
         return;
       }
       /* Spurious duplicate uip_connected on primary — do not queue busy text here. */
@@ -1354,8 +1368,7 @@ telnetd_appcall(void *ts)
     if(uip_poll()) {
       if(timer_expired(&silence_timer)) {
         if(s.state != STATE_CLOSE || buf.used == 0u) {
-          uip_close();
-          tcp_markconn(uip_conn, NULL);
+          telnetd_tcp_conn_uclose();
         }
       }
     }

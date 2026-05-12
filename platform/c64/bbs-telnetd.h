@@ -37,17 +37,28 @@
 #include "contiki.h"
 #include "bbs-defs.h"
 
+/* Telnet/serial line state (transport layer only; not used by shell). */
+typedef struct {
+  unsigned char buf[TELNETD_CONF_LINELEN + 1];
+  unsigned char bufptr;
+  unsigned char last_space_at; /* last word-break in buf (space/tab); 255=none */
+  unsigned char connected;
+  unsigned long numsent;
+  unsigned short state;
+} TELNETD_STATE;
+
 PROCESS_NAME(telnetd_process);
 
-//void telnetd_init(void);
+/* Session/transport hooks (both builds): shell must not touch TELNETD_STATE directly. */
+void bbs_transport_session_close(void);
+void bbs_transport_busy_reject(void);
+void bbs_transport_stream_clear_sent(void);
 
-void telnetd_gui_eventhandler(process_event_t ev, process_data_t data);
+#ifndef BBS_SERIAL_TRANSPORT
 void telnetd_appcall(void *data);
-void telnetd_gui_init(void);
-void telnetd_gui_output(const char *str1, int len1, const char *str2, int len2);
-void telnetd_gui_quit(void);
 void telnetd_quit(void);
-/* Ask tcpip to run telnetd_appcall soon (e.g. after user quit sets STATE_CLOSE). */
+#endif
+/* TCP: schedule uip poll; serial: no-op. */
 void telnetd_kick_disconnect(void);
 #ifdef BBS_SERIAL_TRANSPORT
 /* Push outbound ring toward UART so bulk cbm_read into buf isn't capped prematurely. */

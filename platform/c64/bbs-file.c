@@ -23,7 +23,6 @@ extern BBS_BOARD_REC board;
 extern BBS_BUFFER buf;
 //extern telnetd_buf buf;
 //static telnetd_buf buf;
-extern TELNETD_STATE s;
 
 /*---------------------------------------------------------------------------*/
 /*short bbs_filesize(char *prefix, char *filename, unsigned char device)

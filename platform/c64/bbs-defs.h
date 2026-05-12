@@ -29,7 +29,7 @@
 /* Stream chunk size; movie UI caps speed at 10. */
 #define MAX_STREAM_SPEED        10
 
-/* Outbound queue; must exceed uip MSS (~536) for smooth output. */
+/* Outbound queue; must exceed TCP MSS for smooth output on uIP builds. */
 #ifndef BBS_BUFFER_SIZE
 /* Keep ring size equal to max post payload to avoid truncation surprises. */
 #define BBS_BUFFER_SIZE    	1500
@@ -210,14 +210,5 @@ typedef struct {
   unsigned int used; /* pending outbound bytes (may wrap) */
   unsigned int size;
 } BBS_BUFFER;
-
-typedef struct {
-  unsigned char buf[TELNETD_CONF_LINELEN + 1];
-  unsigned char bufptr;
-  unsigned char last_space_at; /* last word-break in buf (space/tab); 255=none */
-  unsigned char connected;
-  unsigned long numsent;
-  unsigned short state;
-} TELNETD_STATE;
 
 #endif /* __BBSDEFS_H_ */
