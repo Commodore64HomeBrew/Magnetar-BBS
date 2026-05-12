@@ -21,39 +21,54 @@ extern BBS_STATUS_REC bbs_status;
 extern BBS_BOARD_REC board;
 
 extern BBS_BUFFER buf;
-//extern telnetd_buf buf;
-//static telnetd_buf buf;
 
 /*---------------------------------------------------------------------------*/
-/*short bbs_filesize(char *prefix, char *filename, unsigned char device)
+/* read_layout: 1 = STATUS_READ (read at ptr, reserve 2 for CRLF append); 0 = payload at ptr+2, CR+NL at ptr..ptr+1. */
+static void
+banner_load_file_payload(unsigned short ptr, unsigned char read_layout)
 {
-    struct cbm_dirent dirent;
-    unsigned short fsize=0;
-    char dir[12];
+  unsigned char *dst;
+  unsigned int room;
+  int n;
 
-    sprintf(dir,"cd%s",prefix);
-
-    cbm_open(1, device, 15, dir);
-    cbm_close(1);
-
-    if (cbm_opendir(1, device)==0) {
-        while (!cbm_readdir(1, &dirent))
-            if (strstr(dirent.name, filename)) 
-               fsize=dirent.size;
-        cbm_closedir(1);
+  if(read_layout != 0u) {
+    room = buf_free_bytes();
+    if(room > 2u) {
+      room -= 2u;
+    } else {
+      room = 0u;
     }
-    cbm_open(1, device, 15, "cd//");
-    cbm_close(1);
+    dst = &buf.bufmem[ptr];
+    n = cbm_read(10, dst, (unsigned short)room);
+    if(n < 0) {
+      n = 0;
+    }
+    buf.used = (unsigned int)ptr + (unsigned int)n;
+    if(bbs_status.encoding == 1) {
+      petscii_to_ascii((char *)dst,
+          (unsigned int)(buf.used - (unsigned int)ptr));
+    }
+    if(buf_free_bytes() >= 2u) {
+      (void)buf_putc_raw(ISO_cr);
+      (void)buf_putc_raw(ISO_nl);
+    }
+  } else {
+    if((unsigned int)ptr + 2u >= buf.size) {
+      n = 0;
+    } else {
+      room = buf.size - (unsigned int)ptr - 2u;
+      dst = &buf.bufmem[ptr + 2];
+      n = cbm_read(10, dst, (unsigned short)room);
+    }
+    if(n < 0) {
+      n = 0;
+    }
+    buf.used = (unsigned int)ptr + 2u + (unsigned int)n;
+  }
+}
 
-    return fsize*256; 
-}*/
-
-/*---------------------------------------------------------------------------*/
 void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], unsigned char fileSuffix[3], unsigned char device, unsigned char wordWrap)//, unsigned char encodeToggle) 
 {
-  //unsigned char *file_buffer;
-  //char file_buffer[BBS_BUFFER_SIZE];
-
   unsigned short i=0, j=0;
   unsigned short line=0;
   unsigned short col, preCol;
@@ -83,48 +98,8 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
 
   cbm_open(10, device, 10, file);
 
-  if(bbs_status.status == STATUS_READ) {
-    unsigned int room;
-    int n;
-
-    /* Leave space for trailing CR+NL after file data. */
-    room = buf_free_bytes();
-    if(room > 2u) {
-      room -= 2u;
-    } else {
-      room = 0;
-    }
-    n = cbm_read(10, &buf.bufmem[ptr], (unsigned short)room);
-    if(n < 0) {
-      n = 0;
-    }
-    buf.used = (unsigned int)ptr + (unsigned int)n;
-
-    if(bbs_status.encoding == 1) {
-      petscii_to_ascii((char *)&buf.bufmem[ptr],
-		       (unsigned int)(buf.used - (unsigned int)ptr));
-    }
-
-    if(buf_free_bytes() >= 2u) {
-      (void)buf_putc_raw(ISO_cr);
-      (void)buf_putc_raw(ISO_nl);
-    }
-  } else {
-    unsigned int room;
-    int n;
-
-    /* File payload starts at ptr+2; ptr..ptr+1 reserved for CR+NL below. */
-    if(ptr + 2u >= buf.size) {
-      n = 0;
-    } else {
-      room = buf.size - (unsigned int)ptr - 2u;
-      n = cbm_read(10, &buf.bufmem[ptr + 2], (unsigned short)room);
-    }
-    if(n < 0) {
-      n = 0;
-    }
-    buf.used = (unsigned int)ptr + 2u + (unsigned int)n;
-  }
+  banner_load_file_payload(ptr,
+      (unsigned char)(bbs_status.status == STATUS_READ ? 1u : 0u));
 
   if((unsigned int)ptr + 1u < buf.size) {
     buf.bufmem[ptr] = ISO_cr;
@@ -233,355 +208,31 @@ bbs_path_sys_at(char *out, const char *suffix)
 void
 file_path(const char *file, unsigned short num, char *out, unsigned char outsz)
 {
+  const char *pfx;
+  unsigned char bid;
+
   if(out == NULL || outsz < 2) {
     return;
   }
 
-  if(board.dir_boost == 1) {
+  pfx = board.subs_prefix;
+  bid = bbs_status.board_id;
 
-    if(num < 10) {
-      sprintf(out, "%s%d/0/0/0/%c/", board.subs_prefix, bbs_status.board_id, file[2]);
-    } else if(num < 100) {
-      sprintf(out, "%s%d/0/0/%c/%c/", board.subs_prefix, bbs_status.board_id,
-              file[2], file[3]);
-    } else if(num < 1000) {
-      sprintf(out, "%s%d/0/%c/%c/%c/", board.subs_prefix, bbs_status.board_id,
-              file[2], file[3], file[4]);
-    } else {
-      /* num >= 1000 (including >= 10000): deepest boost layout. */
-      sprintf(out, "%s%d/%c/%c/%c/%c/", board.subs_prefix, bbs_status.board_id,
-              file[2], file[3], file[4], file[5]);
-    }
+  if(board.dir_boost != 1) {
+    sprintf(out, "%s%d/", pfx, (int)bid);
+    return;
+  }
+
+  if(num < 10u) {
+    sprintf(out, "%s%d/0/0/0/%c/", pfx, (int)bid, (int)file[2]);
+  } else if(num < 100u) {
+    sprintf(out, "%s%d/0/0/%c/%c/", pfx, (int)bid,
+        (int)file[2], (int)file[3]);
+  } else if(num < 1000u) {
+    sprintf(out, "%s%d/0/%c/%c/%c/", pfx, (int)bid,
+        (int)file[2], (int)file[3], (int)file[4]);
   } else {
-    sprintf(out, "%s%d/", board.subs_prefix, bbs_status.board_id);
+    sprintf(out, "%s%d/%c/%c/%c/%c/", pfx, (int)bid,
+        (int)file[2], (int)file[3], (int)file[4], (int)file[5]);
   }
 }
-
-
-
-
-void stream_file(){
-
-  bordercolor(7);
-
-  //Blank the screen to speed things up
-  poke(0xd011, peek(0xd011) & 0xef);
-
-  cbm_open(10, 8, 10, "//m/:terror");
-
-  bbs_status.status = STATUS_STREAM;
-
-}
-
-
-
-
-//uip_send(&c,1);
-
-
-//m/terror.prg
-//m/tmnt.prg
-
-/*---------------------------------------------------------------------------*/
-/*PROCESS_THREAD(bbs_read_file, ev, data)
-{
-  struct shell_input *input;
-  int return_code;
-
-  PROCESS_BEGIN();
-
-  while(1) {
-
-    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || ev == PROCESS_EVENT_TIMER);
-
-    if (ev == PROCESS_EVENT_TIMER) {
-       shell_stop();
-       log_message("\x9a","event timer");
-    }
-    if (ev == shell_event_input) {
-      input = data;
-      switch (bbs_status.status) {
-
-          case STATUS_CONFUSR: {
-
-            if(! strcmp(input->data1, "y") || ! strcmp(input->data1, "Y")){
-
-              shell_output_str(NULL, "\r\nhit return to continue", "");
-              bbs_status.status=STATUS_STATS;
-
-            }
-            else{
-              shell_prompt("\n\rhandle: ");
-              bbs_status.status=STATUS_HANDLE;
-            }
-            break;
-          }
-          case STATUS_STATS: {
-            if(strlen(input->data1)>0) {
-              bbs_login();
-            }
-            break;
-          }
-
-       }
-    }
-  }
-
-  PROCESS_END();
-}*/
-
-/*---------------------------------------------------------------------------*/
-/*
-void em_load(unsigned char filePrefix[10], unsigned char szBannerFile[12], unsigned char fileSuffix[3], unsigned char device, unsigned short file_num) 
-{
-  unsigned char *buffer;
-  unsigned short fsize=0;
-  unsigned short i=0, siRet=0, len=0; 
-  int *page,n;
-  unsigned char file[15];
-  unsigned I;
-  unsigned PageCount;
-
-
-
-
-  sprintf(file, "%s%s",szBannerFile,fileSuffix);
-
-  log_message("[bbs] em loaded: ", file);
-
-  fsize=bbs_filesize(filePrefix, file, device);
-
-  buffer = (char*) malloc(fsize);
-
-  memset(buffer, 0, fsize);
-  siRet = cbm_open(10, device, 10, file);
-
-  if (! siRet) {
-     len = cbm_read(10, buffer, fsize);
-     cbm_close(10);
-
-  }
-
-  shell_output_str(NULL, "\n\r", buffer);
-  
-
-  //+++++++++++++++++++++++++++++++++++++++++++++++++++
-
-	PageCount = em_pagecount ();
-    // Fill all pages 
-  n=0;
-	I=0;
-    //for (I = 0; I < PageCount; ++I) {
-	bbs_em.file[0][0] = I;	
-	while (n<fsize && I < PageCount){
-		++I;
-    	// Set the next page:
-		page = em_use (I);
-
-
-        // Copy the buffer to em one page at a time:
-
-	    for (i = 0; i < PAGE_SIZE; ++i, ++page, ++n) {
-	        *page = buffer[n];
-	    }
-	    //Now commit the page to extended memory: 
-        em_commit ();
-    }
-
-	bbs_em.file[0][1] = I;
-
-	if (buffer != NULL)
-	 free(buffer);
-}
-*/
-/*---------------------------------------------------------------------------*/
-/*
-void em_out(unsigned short file_num)
-{
-
-  unsigned short i,n;
-  unsigned I;
-  unsigned PageCount;
-  register const unsigned* em_buf;
-  unsigned char *buffer;
-
-  buffer = (char*) malloc((bbs_em.file[file_num][1] - bbs_em.file[file_num][0])*PAGE_SIZE);
-
-  PageCount = em_pagecount ();
-
-  if(bbs_em.file[file_num][1] <= PageCount){
-    n=0;
-    // Check all pages
-    for (I = bbs_em.file[file_num][0]; I <= bbs_em.file[file_num][1]; ++I) {
-
-        em_buf = em_map(I);
-
-        //buf_append(&buf, em_buf, PageCount);
-
-        for (i = 0; i < PAGE_SIZE; ++i, ++em_buf, ++n) {
-          buffer[n] = *em_buf;
-        }
-
-        // Get the buffer and compare it
-        //cmp (I, em_map (I), PAGE_SIZE, I);
-
-    }
-  }
-  shell_output_str(NULL, "\n\r", buffer);
-}
-
-*/
-/*---------------------------------------------------------------------------*/
-
-/*int ssWriteSEQFile(ST_FILE *pstFile, short ssMode, void *pvBuffer, unsigned int uiBuffSize)
-{
-  int siRet=0;
-  char szTmp[15];
-  
-  strcpy(szTmp,"@:");
-  strcat(szTmp, pstFile->szFileName);  
-  //(ssMode != 0) ? strcat(szTmp, ",s,a") : strcat(szTmp, ",s,w");
-  strcat(szTmp, ",s,w");
-  siRet = cbm_open(10, pstFile->ucDeviceNo, 10, szTmp);
-  log_message("[bbs] *szTmp* ", szTmp);
-  
-  if (! siRet)
-  {
-     if (pvBuffer != NULL) {
-        log_message("[bbs] *write* ", pvBuffer);     
-        cbm_write(10, pvBuffer, uiBuffSize);   
-     }
-  } else {
-    cbm_close(10);
-    return siRet;
-  }
-
-  cbm_close(10);
-    
-  return siRet;
-}*/
-/*
-int ssReadSEQFile(ST_FILE *pstFile, void *pvBuffer, unsigned int uiBuffSize)
-{
-  int siRet=0;
-  char szTmp[15];
- 
-  memset(pvBuffer, 0, uiBuffSize);
- 
-  strcpy(szTmp, pstFile->szFileName);
-  strcat(szTmp, ",s,r");
-   
-  siRet = cbm_open(10, pstFile->ucDeviceNo, 10, szTmp);
- 
-  if (! siRet)
-  {
-     cbm_read(10, pvBuffer, uiBuffSize);
-  } else {
-    cbm_close(10);
-    return siRet;
-  }
-
-  cbm_close(10);
-
-  return siRet;    
-}
-*/
-/*int ssStreamSEQFile(ST_FILE *pstFile, void *pvBuffer, unsigned int uiBuffSize)
-{
-  int i;
-  int siRet=0;
-  char szTmp[15];
-  char in[1];
-
-  memset(pvBuffer, 0, uiBuffSize);
- 
-  strcpy(szTmp, pstFile->szFileName);
-  strcat(szTmp, ",s,r");
-   
-  siRet = cbm_open(10, pstFile->ucDeviceNo, 10, szTmp);
- 
-  if (! siRet)
-  {
-    for(i=0;i<uiBuffSize;i++){
-      cbm_read(10, in, 1);
-      shell_output_str(NULL, in, "");
-      //buf_append(&buf, in, 1);
-    }  
-  } else {
-    cbm_close(10);
-    return siRet;
-  }
-
-  cbm_close(10);
-
-  return siRet;    
-}*/
-
-
-/*---------------------------------------------------------------------------*/
-/*int siDriveStatus(ST_FILE *pstFile)
-{
-   unsigned char ucBuff[128];
-   unsigned char msg[40];
-   unsigned char e, t, s;
-
-
-   if (cbm_open(1, pstFile->ucDeviceNo, 15, "") == 0) {
-   
-      if ( cbm_read(1, ucBuff, sizeof(ucBuff)) < 0) {
-         return -1;
-      }
-      cbm_close(1);
-   }
-
-   if (sscanf(ucBuff, "%hhu, %[^,], %hhu, %hhu", &e, msg, &t, &s) != 4) {
-      printf("\nparse error\n");
-      puts(ucBuff);
-      return -1;
-   }
-
-   //printf("\n%hhu,%s,%hhu,%hhu\n", (int) e, msg, (int) t, (int) s);
-
-   return (int) e;
-}*/
-/*---------------------------------------------------------------------------*/
-/*int siFileExists(ST_FILE *pstFile)
-{
-   unsigned char ucBuff[128];
-   unsigned char szTmp[15];
-   unsigned char msg[40];
-   unsigned char e, t, s;
-   int siRet=0;
-
-   strcpy(szTmp,"@:");
-   strcat(szTmp, pstFile->szFileName);  
-   strcat(szTmp, ",p,r");
-
-   cbm_open( 15, pstFile->ucDeviceNo, 15, NULL);
-   cbm_open( 2, pstFile->ucDeviceNo,  3, pstFile->szFileName);    
-
-   if ( cbm_read(15, ucBuff, sizeof(ucBuff)) < 0) {
-      return -1;
-   }
-
-   cbm_close(15);
-
-   if (sscanf(ucBuff, "%hhu, %[^,], %hhu, %hhu", &e, msg, &t, &s) != 4) {
-      puts("parse error");
-      puts(ucBuff);
-      return -1;
-   }
-
-   cbm_close(2);
-   cbm_close(15);
-
-   return (int) e;
-}
-*/
-/*unsigned char ucCheckDeviceNo(unsigned char *ucDeviceNo)
-{
-   if (*ucDeviceNo < 8 || *ucDeviceNo > 11)
-      return 8;
-   else 
-   	  return *ucDeviceNo;
-}*/

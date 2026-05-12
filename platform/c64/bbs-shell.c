@@ -61,12 +61,6 @@ static char shell_serial_input_line[TELNETD_CONF_LINELEN + 1];
 static struct shell_input shell_serial_input_holder;
 #endif
 
-//PROCESS(shell_killall_process, "killall");
-//SHELL_COMMAND(killall_command, "killall", "killall : stop all running commands", &shell_killall_process);
-
-//PROCESS(shell_kill_process, "kill");
-//SHELL_COMMAND(kill_command, "kill", "kill <command> : stop a specific command", &shell_kill_process);
-
 /*---------------------------------------------------------------------------*/
 PROCESS(version_process, "version");
 SHELL_COMMAND(version_command, "v", "v : magnetar version", &version_process);
@@ -717,9 +711,18 @@ void bbs_login()
 	set_prompt();
 	shell_prompt(bbs_status.prompt);
 	process_start(&bbs_timer_process, NULL);
-	front_process=&shell_process;
+  front_process=&shell_process;
 }
 
+
+static void
+login_stats_continue(void)
+{
+  bbs_record_last_caller();
+  system_stats();
+  shell_output_str(NULL, "\r\nhit return to continue", "");
+  bbs_status.status = STATUS_STATS;
+}
 
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_login_process, ev, data)
@@ -830,12 +833,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
           case STATUS_PASSWD: {
             if(! strcmp(input->data1, bbs_user.user_pwd)) {
 
-				bbs_record_last_caller();
-
-				system_stats();
-
-              	shell_output_str(NULL, "\r\nhit return to continue", "");
-				bbs_status.status=STATUS_STATS;
+				login_stats_continue();
 
             } else {
               shell_output_str(NULL, "wrong password.", "");
@@ -861,12 +859,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             if(login_token_eq(input->data1, 'y')) {
               bbs_save_user();
 
-				bbs_record_last_caller();
-
-				system_stats();
-
-              	shell_output_str(NULL, "\r\nhit return to continue", "");
-				bbs_status.status=STATUS_STATS;
+				login_stats_continue();
 
               //bbs_login();
             }
@@ -899,7 +892,6 @@ static void
 command_kill(struct shell_command *c)
 {
   if(c != NULL) {
-    //shell_output_str(&killall_command, "Stopping command ", c->command);
     process_exit(c->process);
   }
 }
@@ -949,44 +941,6 @@ PROCESS_THREAD(bbs_timer_process, ev, data)
   PROCESS_END();
 }
 
-/*---------------------------------------------------------------------------*/
-/*PROCESS_THREAD(shell_killall_process, ev, data)
-{
-
-  PROCESS_BEGIN();
-
-  killall();
-  
-  PROCESS_END();
-}*/
-/*---------------------------------------------------------------------------*/
-/*PROCESS_THREAD(shell_kill_process, ev, data)
-{
-  struct shell_command *c;
-  char *name;
-  PROCESS_BEGIN();
-
-  name = data;
-  if(name == NULL || strlen(name) == 0) {
-    shell_output_str(&kill_command,
-		     "kill <command>: command name must be given", "");
-  }
-
-  for(c = list_head(commands);
-      c != NULL;
-      c = c->next) {
-    if(strcmp(name, c->command) == 0 &&
-       c != &kill_command &&
-       process_is_running(c->process)) {
-      command_kill(c);
-      PROCESS_EXIT();
-    }
-  }
-
-  shell_output_str(&kill_command, "Command not found: ", name);
-  
-  PROCESS_END();
-}*/
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(version_process, ev, data)
 {

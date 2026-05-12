@@ -120,7 +120,7 @@ void shell_init(void);
  *
  */
 void shell_start(void);
-/* TCP: banner/prompt before first byte; HTTP rejects never call bbs_lock. */
+/* TCP: defer bbs_lock until probe rejects HTTP/TLS/SSH; CRLF-only first segment never locks. */
 void shell_preconnect_banner(void);
 void shell_start_after_probe(void);
 

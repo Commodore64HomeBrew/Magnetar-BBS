@@ -27,10 +27,8 @@ typedef struct
 	char szFileName[MAX_FILENAME];
 	unsigned char ucDeviceNo;
 } ST_FILE;
-//short bbs_filesize(char *prefix, char *filename, unsigned char device);
-void bbs_banner(unsigned char filePrefix[10], unsigned char szBannerFile[12], unsigned char fileSuffix[3], unsigned char device, unsigned char wordWrap);
 
-//void stream_file(void);
+void bbs_banner(unsigned char filePrefix[10], unsigned char szBannerFile[12], unsigned char fileSuffix[3], unsigned char device, unsigned char wordWrap);
 
 /* Writes directory prefix for message num into out (NUL-terminated). outsz must be >= BBS_FILE_PATH_BUFLEN. */
 void file_path(const char *file, unsigned short num, char *out, unsigned char outsz);
@@ -39,12 +37,4 @@ void file_path(const char *file, unsigned short num, char *out, unsigned char ou
 void bbs_path_sys_colon(char *out, const char *suffix);
 void bbs_path_sys_at(char *out, const char *suffix);
 
-//void em_load(unsigned char filePrefix[10], unsigned char szBannerFile[12], unsigned char fileSuffix[3], unsigned char device, unsigned short file_num);
-//void em_out(unsigned short file_num);
-
-//int ssWriteSEQFile(ST_FILE *pstFile, short ssMode, void *pvBuffer, unsigned int uiBuffSize);
-//int ssReadSEQFile(ST_FILE *pstFile, void *pvBuffer, unsigned int uiBuffSize);
-//int ssStreamSEQFile(ST_FILE *pstFile, void *pvBuffer, unsigned int uiBuffSize);
-//int ssWritePRGFile(ST_FILE *pstFile, void *pvBuffer, unsigned int uiBuffSize);
-//unsigned char ucCheckDeviceNo(unsigned char *ucDeviceNo);
 #endif

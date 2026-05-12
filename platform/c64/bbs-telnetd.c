@@ -67,30 +67,11 @@ static char telnetd_reject_text[] =
 #endif
 
 
-/*
-#define STATE_NORMAL 0
-#define STATE_IAC    1
-#define STATE_WILL   2
-#define STATE_WONT   3
-#define STATE_DO     4
-#define STATE_DONT   5
-#define STATE_CLOSE  6
-*/
-
 #define TELNET_IAC   255
 #define TELNET_WILL  251
 #define TELNET_WONT  252
 #define TELNET_DO    253
 #define TELNET_DONT  254
-/*
-#define DEBUG 0
-#if DEBUG
-#include <stdio.h>
-#define PRINTF(...) printf(__VA_ARGS__)
-#else
-#define PRINTF(...)
-#endif
-*/
 uint8_t cr=0x0d;
 uint8_t dl=0x14;
 uint8_t col_num=0;
@@ -128,7 +109,6 @@ static unsigned char telwrap_tr;
 /* After CR-ended line, absorb one following LF (Telnet NVT / CRLF bridges). */
 static unsigned char telnetd_ignore_lf_after_cr;
 
-//static struct telnetd_buf buf;
 static struct timer silence_timer;
 
 TELNETD_STATE s;
@@ -154,6 +134,9 @@ static void telnetd_feed(const unsigned char *ptr, unsigned int len);
 static struct uip_conn *primary_conn;
 /* 1 until first inbound segment is consumed (probe reject check). */
 static unsigned char telnetd_tcp_firstrx;
+/* First TCP segment(s) until classified: never bbs_lock while HTTP/TLS prefix possible. */
+static unsigned char tcp_probe_fill;
+static unsigned char tcp_probe_acc[8];
 /* 1: unacked TCP payload came from STATUS_STREAM (sd_c), not the shell ring. */
 static unsigned char telnetd_tcp_stream_unacked;
 /* strlen(telnetd_reject_text) after optional PETSCII→ASCII in process init. */
@@ -169,8 +152,6 @@ static void telnetd_serial_disconnect(void);
 static unsigned int telnetd_serial_write(const void *vd, unsigned int len);
 static void telnetd_serial_tx(void);
 #endif
-
-//static uint8_t connected;
 
 /*---------------------------------------------------------------------------*/
 static void
@@ -303,6 +284,7 @@ buf_init(void)
 #ifndef BBS_SERIAL_TRANSPORT
   telnetd_tcp_stream_unacked = 0u;
   telnetd_tcp_busy_sent = 0u;
+  tcp_probe_fill = 0u;
 #endif
   TELWRAP_LINE_RESET();
 }
@@ -402,12 +384,6 @@ buf_append(const char *data, int len)
   return copylen;
 }
 /*---------------------------------------------------------------------------*/
-/*static void
-buf_copyto(char *to, int len)
-{
-  memcpy(to, &buf.bufmem[0], len);
-}*/
-/*---------------------------------------------------------------------------*/
 #ifndef BBS_SERIAL_TRANSPORT
 void
 telnetd_quit(void)
@@ -460,56 +436,6 @@ shell_prompt(char *str)
 {
   buf_append(str, (int)strlen(str));
 }
-/*---------------------------------------------------------------------------*/
-/*void
-shell_default_output(char *str1, int len1,char *str2, int len2)
-{
-  static const char crnl[2] = {ISO_cr, ISO_nl};
-  
-  //if(bbs_status.encoding==1){
-    //petscii_to_ascii(&str1[0], len1);
-  	//petscii_to_ascii(&str2[0], len2);
-  //}
-
-  if(len1 > 0 && str1[len1 - 1] == '\n') {
-    --len1;
-  }
-  if(len2 > 0 && str2[len2 - 1] == '\n') {
-    --len2;
-  }
-
-  //PRINTF("shell_default_output: %.*s %.*s\n", len1, str1, len2, str2);
-  
-
-  buf_append(str1, len1);
-  buf_append(str2, len2);
-  buf_append(crnl, sizeof(crnl));
-}*/
-/*---------------------------------------------------------------------------*/
-/*void
-shell_exit(void)
-{
-  //log_message("\x9e", "shell exit");
-  s.state = STATE_CLOSE;
-}*/
-/*---------------------------------------------------------------------------*/
-/*void stream_data(void){
-
-    sd_len = cbm_read(10, &sd_c, bbs_status.speed);
-    if(sd_len>0){
-      uip_send(&sd_c,bbs_status.speed);
-      s.numsent = bbs_status.speed;
-    }
-    else{
-      bbs_status.status = STATUS_LOCK;
-      //s.numsent = 0;
-      //cbm_close(10);
-      //Change boarder back to red
-      //bordercolor(2);
-      //Turn on the screen again
-      //poke(0xd011, peek(0xd011) | 0x10);
-    }
-}*/
 /*---------------------------------------------------------------------------*/
 #ifdef BBS_SERIAL_TRANSPORT
 extern const struct ser_params magnetar_serial_params;
@@ -829,22 +755,6 @@ PROCESS_THREAD(telnetd_process, ev, data)
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
-/*static void
-acked(void)
-{
-  buf_pop(s.numsent);
-}*/
-/*---------------------------------------------------------------------------*/
-/*static void
-senddata(void)
-{
-  int len;
-  len = MIN((int)buf.used, uip_mss());
-  memcpy(uip_appdata, &buf.bufmem[buf.head], (unsigned int)len);
-  uip_send(uip_appdata, (unsigned int)len);
-  s.numsent = (unsigned int)len;
-}*/
-/*---------------------------------------------------------------------------*/
 static void
 get_char(uint8_t c)
 {
@@ -1109,42 +1019,61 @@ telnetd_feed(const unsigned char *ptr, unsigned int len)
 }
 
 #ifndef BBS_SERIAL_TRANSPORT
+/* 1=reject, 2=need more TCP, 0=telnet. Rows: 0=case 1=CI, n, n bytes; 255=end. */
 static unsigned char
-reject_non_telnet(const unsigned char *p, unsigned int len)
+tcp_probe_classify(const unsigned char *q, unsigned int l)
 {
-  /* Common probe signatures only: TLS, SSH, and primary HTTP verbs. */
-  static const unsigned char rejtbl[] = {
-    2, 22, 3,
-    4, 'S', 'S', 'H', '-',
-    4, 'G', 'E', 'T', ' ',
-    4, 'P', 'U', 'T', ' ',
-    5, 'P', 'O', 'S', 'T', ' ',
-    5, 'H', 'E', 'A', 'D', ' ',
-    5, 'P', 'R', 'I', ' ', '*',
-    0
+  static const unsigned char sig[] = {
+    0, 2, 22, 3,
+    0, 4, 'S', 'S', 'H', '-',
+    0, 5, 'P', 'R', 'I', ' ', '*',
+    1, 4, 'G', 'E', 'T', ' ',
+    1, 4, 'P', 'U', 'T', ' ',
+    1, 5, 'P', 'O', 'S', 'T', ' ',
+    1, 5, 'H', 'E', 'A', 'D', ' ',
+    1, 7, 'D', 'E', 'L', 'E', 'T', 'E', ' ',
+    255
   };
   const unsigned char *t;
+  unsigned char k;
   unsigned char n;
   unsigned char i;
+  unsigned int lim;
 
-  for(t = rejtbl; (n = *t++) != 0u; ) {
-    if(len >= (unsigned int)n) {
-      for(i = 0u; i < n; ++i) {
-        if(p[i] != t[i]) {
-          goto nomatch;
-        }
+  for(t = sig;; ) {
+    k = *t++;
+    if(k == 255u) {
+      return 0u;
+    }
+    n = *t++;
+    lim = (l >= (unsigned int)n) ? (unsigned int)n : l;
+    if(lim == 0u) {
+      t += n;
+      continue;
+    }
+    for(i = 0u; i < (unsigned char)lim; ++i) {
+      unsigned char cx;
+      unsigned char ch;
+
+      ch = q[i];
+      cx = (k != 0u && ch >= 'a' && ch <= 'z') ? (unsigned char)(ch - 32u) : ch;
+      if(cx != t[i]) {
+        t += n;
+        goto nextsig;
       }
+    }
+    if(l >= (unsigned int)n) {
       return 1u;
     }
-nomatch:
-    t += n;
+    return 2u;
+nextsig:;
   }
-  return 0u;
 }
 
 static void
 telnetd_tcp_drop_probe(void)
 {
+  tcp_probe_fill = 0u;
   if(bbs_locked != 0u) {
     shell_stop();
   }
@@ -1182,18 +1111,61 @@ newdata(void)
 {
   unsigned int len;
   const unsigned char *p;
+  const unsigned char *q;
+  unsigned int rem;
+  unsigned char cl;
 
   len = (unsigned int)uip_datalen();
   p = (const unsigned char *)uip_appdata;
 
   if(len > 0u && uip_conn == primary_conn && s.connected != 0u
      && telnetd_tcp_firstrx != 0u) {
-    telnetd_tcp_firstrx = 0u;
-    if(reject_non_telnet(p, len) != 0u) {
-      telnetd_tcp_drop_probe();
-      return 1;
+    q = p;
+    rem = len;
+    while(tcp_probe_fill == 0u && rem > 0u
+          && (q[0] == 0x20u || q[0] == 0x09u || q[0] == ISO_cr
+              || q[0] == ISO_nl)) {
+      ++q;
+      --rem;
     }
-    shell_start_after_probe();
+    /* CRLF-only (or ws-only) first segment: never bbs_lock — wait for request line. */
+    if(rem == 0u) {
+      return 0;
+    }
+    while(rem > 0u && tcp_probe_fill < 8u) {
+      tcp_probe_acc[(int)tcp_probe_fill] = *q++;
+      ++tcp_probe_fill;
+      --rem;
+      cl = tcp_probe_classify(tcp_probe_acc, (unsigned int)tcp_probe_fill);
+      if(cl == 1u) {
+        telnetd_tcp_drop_probe();
+        return 1;
+      }
+      if(cl == 0u) {
+        telnetd_tcp_firstrx = 0u;
+        shell_preconnect_banner();
+        shell_start_after_probe();
+        telnetd_feed(tcp_probe_acc, (unsigned int)tcp_probe_fill);
+        tcp_probe_fill = 0u;
+        telnetd_feed(q, rem);
+        return 0;
+      }
+    }
+    if(tcp_probe_fill >= 8u) {
+      cl = tcp_probe_classify(tcp_probe_acc, (unsigned int)tcp_probe_fill);
+      if(cl == 1u) {
+        telnetd_tcp_drop_probe();
+        return 1;
+      }
+      telnetd_tcp_firstrx = 0u;
+      shell_preconnect_banner();
+      shell_start_after_probe();
+      telnetd_feed(tcp_probe_acc, (unsigned int)tcp_probe_fill);
+      tcp_probe_fill = 0u;
+      telnetd_feed(q, rem);
+      return 0;
+    }
+    return 0;
   }
 
   telnetd_feed(p, len);
@@ -1245,18 +1217,6 @@ telnetd_appcall(void *ts)
       primary_conn = uip_conn;
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
       telnetd_tcp_firstrx = 1u;
-      if(uip_newdata() != 0u) {
-        unsigned int plen;
-        const unsigned char *pp;
-
-        plen = (unsigned int)uip_datalen();
-        pp = (const unsigned char *)uip_appdata;
-        if(reject_non_telnet(pp, plen) != 0u) {
-          telnetd_tcp_drop_probe();
-          return;
-        }
-      }
-      shell_preconnect_banner();
       ts = (char *)0;
     } else {
       if(uip_conn != primary_conn) {
@@ -1281,9 +1241,6 @@ telnetd_appcall(void *ts)
       /* Only the primary uip_conn owns shell/BBS state. A secondary that finished
        * busy/reject has ts NULL here too — must not clear primary_conn. */
       if(primary_conn != NULL && uip_conn == primary_conn) {
-        if(bbs_locked != 0u) {
-          log_message("\x9e", "telnetd stop");
-        }
         update_time();
 
         if(bbs_status.login == 1) {
@@ -1291,6 +1248,7 @@ telnetd_appcall(void *ts)
           bbs_status.login = 0;
         }
         if(bbs_locked != 0u) {
+          log_message("\x9e", "telnetd stop");
           shell_stop();
         }
         primary_conn = NULL;
@@ -1375,10 +1333,4 @@ telnetd_appcall(void *ts)
   }
 }
 #endif /* !BBS_SERIAL_TRANSPORT */
-/*---------------------------------------------------------------------------*/
-/*void
-telnetd_init(void)
-{
-  process_start(&telnetd_process, NULL);
-}*/
 /*---------------------------------------------------------------------------*/
