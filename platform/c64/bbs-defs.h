@@ -38,7 +38,7 @@
 #ifdef BBS_SERIAL_TRANSPORT
 /* Raw serial: small chunks + few passes per tick avoid overrunning modem/bridge FIFOs. */
 #ifndef TELNETD_SERIAL_TX_CHUNK
-#define TELNETD_SERIAL_TX_CHUNK 8u
+#define TELNETD_SERIAL_TX_CHUNK 1u
 #endif
 #endif
 /* In-memory post body (lines appended until /s); separate from wire buffer. */
