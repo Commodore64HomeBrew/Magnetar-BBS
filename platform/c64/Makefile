@@ -20,6 +20,9 @@ CONTIKI_WITH_RIME := 0
 CONTIKI_WITH_RPL := 0
 BBS_HEADLESS := 1
 DEFINES := WITH_LOGGING,TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,STATIC_DRIVER=c64_swlink_ser
+# Provide a custom contiki-$(TARGET).a rule for serial so we can filter
+# out TCP/uIP-only objects before archive prerequisites are fixed.
+CUSTOM_RULE_ALLOBJS_TO_TARGETLIB := 1
 else
 # Default program name; links full IPv4 + uIP + tcpip (RR-Net style deployment).
 CONTIKI_PROJECT := contiki-bbs
@@ -55,5 +58,26 @@ include $(CONTIKI)/Makefile.include
 
 # Serial-only link: drop uIP/TCP/Ethernet sources from the library set (after MODULES).
 ifeq ($(strip $(BBS_SERIAL)),1)
-CONTIKI_SOURCEFILES := $(filter-out contiki-main.c config.c slip_arch.c uip_arch.c ethernet-drv.c ethernet.c cs8900a.S lan91c96.S w5100.S slip.c,$(CONTIKI_SOURCEFILES))
+# CPU/target makefiles contribute these with full relative paths, so filter by suffix.
+CONTIKI_SOURCEFILES := $(filter-out \
+	contiki-main.c %/contiki-main.c \
+	config.c %/config.c \
+	slip_arch.c %/slip_arch.c \
+	uip_arch.c %/uip_arch.c \
+	ethernet-drv.c %/ethernet-drv.c \
+	ethernet.c %/ethernet.c \
+	cs8900a.S %/cs8900a.S \
+	lan91c96.S %/lan91c96.S \
+	w5100.S %/w5100.S \
+	slip.c %/slip.c \
+	, \
+	$(CONTIKI_SOURCEFILES))
+CONTIKI_OBJECTFILES_SERIAL = ${addprefix $(OBJECTDIR)/,${call oname, $(CONTIKI_SOURCEFILES)}}
+
+contiki-$(TARGET).a: $(CONTIKI_OBJECTFILES_SERIAL)
+	$(TRACE_AR)
+	$(Q)$(AR) $(AROPTS) $@ $^
+
+cs8900a.eth lan91c96.eth w5100.eth:
+	@:
 endif

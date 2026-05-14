@@ -67,30 +67,11 @@ static char telnetd_reject_text[] =
 #endif
 
 
-/*
-#define STATE_NORMAL 0
-#define STATE_IAC    1
-#define STATE_WILL   2
-#define STATE_WONT   3
-#define STATE_DO     4
-#define STATE_DONT   5
-#define STATE_CLOSE  6
-*/
-
 #define TELNET_IAC   255
 #define TELNET_WILL  251
 #define TELNET_WONT  252
 #define TELNET_DO    253
 #define TELNET_DONT  254
-/*
-#define DEBUG 0
-#if DEBUG
-#include <stdio.h>
-#define PRINTF(...) printf(__VA_ARGS__)
-#else
-#define PRINTF(...)
-#endif
-*/
 uint8_t cr=0x0d;
 uint8_t dl=0x14;
 uint8_t col_num=0;
@@ -134,6 +115,16 @@ TELNETD_STATE s;
 
 BBS_BUFFER buf;
 
+PROCESS_NAME(movie_process);
+
+/* Stream hits EOF while movie PT waits in PROCESS_YIELD_UNTIL; POLL resumes it */
+static void
+bbs_notice_stream_eof(void)
+{
+  bbs_status.status = STATUS_LOCK;
+  process_poll(&movie_process);
+}
+
 static void telnetd_feed(const unsigned char *ptr, unsigned int len);
 
 #ifndef BBS_SERIAL_TRANSPORT
@@ -143,6 +134,9 @@ static void telnetd_feed(const unsigned char *ptr, unsigned int len);
 static struct uip_conn *primary_conn;
 /* 1 until first inbound segment is consumed (probe reject check). */
 static unsigned char telnetd_tcp_firstrx;
+/* 1: unacked TCP payload came from STATUS_STREAM (sd_c), not the shell ring. */
+static unsigned char telnetd_tcp_stream_unacked;
+/* strlen(telnetd_reject_text) after optional PETSCII→ASCII in process init. */
 static unsigned int telnetd_reject_len;
 #else
 /* 1 until first inbound byte opens session (like TCP: no shell until peer talks). */
@@ -172,7 +166,6 @@ telnetd_rescan_last_space(void)
 		}
 	}
 }
-
 
 /*---------------------------------------------------------------------------*/
 static unsigned char
@@ -273,6 +266,7 @@ telwrap_commit_row_finish(unsigned char next_first_idx)
 	}
 }
 
+
 /*---------------------------------------------------------------------------*/
 static void
 buf_init(void)
@@ -282,6 +276,9 @@ buf_init(void)
   buf.size = BBS_BUFFER_SIZE;
   /* No pending TCP acknowledgement window into the drained ring */
   s.numsent = 0;
+#ifndef BBS_SERIAL_TRANSPORT
+  telnetd_tcp_stream_unacked = 0u;
+#endif
   TELWRAP_LINE_RESET();
 }
 
@@ -335,6 +332,17 @@ buf_putc_raw(unsigned char c)
 }
 
 /*---------------------------------------------------------------------------*/
+/* Copy n bytes from src into ring at dst_off; PETSCII→ASCII in place if needed. */
+static void
+buf_ring_write_conv(unsigned int dst_off, const void *src, unsigned int n)
+{
+  memcpy(&buf.bufmem[dst_off], src, n);
+  if(bbs_status.encoding == 1) {
+    petscii_to_ascii((char *)&buf.bufmem[dst_off], n);
+  }
+}
+
+/*---------------------------------------------------------------------------*/
 int
 buf_append(const char *data, int len)
 {
@@ -357,26 +365,19 @@ buf_append(const char *data, int len)
   contig = buf.size - dst0;
 
   if((unsigned int)copylen <= contig) {
-    memcpy(&buf.bufmem[dst0], data, (unsigned int)copylen);
-    if(bbs_status.encoding == 1) {
-      petscii_to_ascii((char *)&buf.bufmem[dst0], (unsigned int)copylen);
-    }
+    buf_ring_write_conv(dst0, data, (unsigned int)copylen);
   } else {
     first_part = contig;
-    memcpy(&buf.bufmem[dst0], data, first_part);
-    if(bbs_status.encoding == 1) {
-      petscii_to_ascii((char *)&buf.bufmem[dst0], first_part);
-    }
-    memcpy(buf.bufmem, data + first_part, (unsigned int)copylen - first_part);
-    if(bbs_status.encoding == 1) {
-      petscii_to_ascii((char *)buf.bufmem, (unsigned int)copylen - first_part);
-    }
+    buf_ring_write_conv(dst0, data, first_part);
+    buf_ring_write_conv(0u, data + first_part,
+        (unsigned int)copylen - first_part);
   }
   buf.used += (unsigned int)copylen;
 
   return copylen;
 }
 /*---------------------------------------------------------------------------*/
+#ifndef BBS_SERIAL_TRANSPORT
 void
 telnetd_quit(void)
 {
@@ -385,6 +386,7 @@ telnetd_quit(void)
   process_exit(&telnetd_process);
   LOADER_UNLOAD();
 }
+#endif /* !BBS_SERIAL_TRANSPORT */
 /*---------------------------------------------------------------------------*/
 /* After bbs_unlock (STATE_CLOSE), schedule a tcp poll so uip_close() runs soon
  * instead of waiting for the next inbound packet / timer. Must not allocate. */
@@ -427,38 +429,6 @@ shell_prompt(char *str)
 {
   buf_append(str, (int)strlen(str));
 }
-/*---------------------------------------------------------------------------*/
-/*void
-shell_default_output(char *str1, int len1,char *str2, int len2)
-{
-  static const char crnl[2] = {ISO_cr, ISO_nl};
-  
-  //if(bbs_status.encoding==1){
-    //petscii_to_ascii(&str1[0], len1);
-  	//petscii_to_ascii(&str2[0], len2);
-  //}
-
-  if(len1 > 0 && str1[len1 - 1] == '\n') {
-    --len1;
-  }
-  if(len2 > 0 && str2[len2 - 1] == '\n') {
-    --len2;
-  }
-
-  //PRINTF("shell_default_output: %.*s %.*s\n", len1, str1, len2, str2);
-  
-
-  buf_append(str1, len1);
-  buf_append(str2, len2);
-  buf_append(crnl, sizeof(crnl));
-}*/
-/*---------------------------------------------------------------------------*/
-/*void
-shell_exit(void)
-{
-  //log_message("\x9e", "shell exit");
-  s.state = STATE_CLOSE;
-}*/
 /*---------------------------------------------------------------------------*/
 #ifdef BBS_SERIAL_TRANSPORT
 extern const struct ser_params magnetar_serial_params;
@@ -571,7 +541,7 @@ telnetd_serial_tx(void)
         buf_append((const char *)sd_c, nread);
       } else {
         /* EOF (0) or read error (<0): unblock shell wait. */
-        bbs_status.status = STATUS_LOCK;
+        bbs_notice_stream_eof();
       }
     }
   }
@@ -949,7 +919,6 @@ get_char(uint8_t c)
 	}
 
 }
-
 /*---------------------------------------------------------------------------*/
 static void
 sendopt(uint8_t option, uint8_t value)
@@ -1141,8 +1110,7 @@ telnetd_appcall(void *ts)
   }
   if(ts == (char *)2) {
     if(uip_acked()) {
-      uip_close();
-      tcp_markconn(uip_conn, NULL);
+      telnetd_tcp_conn_uclose();
     } else if(uip_poll()) {
       telnetd_tcp_conn_uclose();
     }
@@ -1207,7 +1175,11 @@ telnetd_appcall(void *ts)
     }
     if(uip_acked()) {
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
-      buf_ack_sent((unsigned int)s.numsent);
+      if(telnetd_tcp_stream_unacked != 0u) {
+        telnetd_tcp_stream_unacked = 0u;
+      } else {
+        buf_ack_sent((unsigned int)s.numsent);
+      }
     }
     if(uip_newdata()) {
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
@@ -1223,19 +1195,29 @@ telnetd_appcall(void *ts)
       if(bbs_status.status == STATUS_STREAM){
 
 	//File streaming code
-	sd_len = cbm_read(10, &sd_c, bbs_status.speed);
-	if(sd_len>0){
-		uip_send(&sd_c, sd_len);
-		s.numsent = sd_len;
-	}
-	else{
-		bbs_status.status = STATUS_LOCK;
-		//uip_send(&cr,1);
+	if(uip_rexmit() != 0) {
+	  if(s.numsent > 0u) {
+	    telnetd_tcp_stream_unacked = 1u;
+	    uip_send(&sd_c, (int)s.numsent);
+	  }
+	} else {
+	  int sdr;
+
+	  sdr = cbm_read(10, &sd_c, bbs_status.speed);
+	  if(sdr > 0) {
+	    sd_len = (unsigned int)sdr;
+	    telnetd_tcp_stream_unacked = 1u;
+	    uip_send(&sd_c, sdr);
+	    s.numsent = sd_len;
+	  } else {
+	    bbs_notice_stream_eof();
+	    /* uip_send(&cr,1); */
+	  }
 	}
       }
       else{
         /* Ring: send one contiguous run from head (up to MSS, up to wrap). */
-        if(buf.used == 0) {
+        if(telnetd_tcp_stream_unacked != 0u || buf.used == 0) {
           sd_len = 0;
         } else {
           unsigned int mss;
