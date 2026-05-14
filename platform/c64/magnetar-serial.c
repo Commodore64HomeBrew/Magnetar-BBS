@@ -16,7 +16,8 @@ PROCINIT(&etimer_process);
 /* Kept for config compatibility even though serial mode never sends busy text. */
 char telnetd_reject_text[] = "centronian bbs is busy, please try again later.";
 
-/* SwiftLink serial defaults (same style as contiki serconfig output). */
+/* SwiftLink serial defaults (same style as contiki serconfig output).
+ * First serial split used SER_BAUD_38400; 9600 matches common modem/bridge lines. */
 const struct ser_params magnetar_serial_params = {
   SER_BAUD_38400,
   SER_BITS_8,

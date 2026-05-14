@@ -635,10 +635,9 @@ telnetd_serial_poll_io(void)
       continue;
     }
     if(serial_waiting_peer != 0u) {
-      /* Discard modem noise; open session on telnet lead (IAC) or first line break. */
-      if((unsigned char)c != TELNET_IAC && c != ISO_cr && c != ISO_nl) {
-        continue;
-      }
+      /* First RX byte opens the session (pre-52041c9). Raw bridges often send no
+       * leading CR/LF or Telnet IAC; requiring those left the shell idle while the
+       * modem still local-echoed keystrokes. */
       serial_waiting_peer = 0u;
       telnetd_serial_on_connect();
     }

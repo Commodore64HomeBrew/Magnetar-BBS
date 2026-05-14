@@ -268,7 +268,6 @@ static void bbs_init(void)
 	bbs_sysstats.day_ptr=0;
   }
 
-
   bbs_defaults();
   //set_prompt();
 
