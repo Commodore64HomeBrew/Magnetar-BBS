@@ -30,10 +30,8 @@ static const unsigned char month_days[12] =
 
 int shell_event_input;
 static struct process *front_process;
-//static unsigned long timer_offset; 
 static unsigned long clock_offset;
 static unsigned long last_time=0;
-/*static struct etimer bbs_login_timer;*/
 
 BBS_BOARD_REC board;
 BBS_CONFIG_REC bbs_config;
@@ -137,21 +135,6 @@ void set_prompt(void)
 		}
 	}
 }
-/*---------------------------------------------------------------------------*/
-/*char load_struct(struct struct_name *,unsigned char *prefix, unsigned char *filename, unsigned char device)
-{
-	unsigned short fsize;
-	unsigned char file[25];
-
-	sprintf(file, "%s:%s",prefix, filename);
-
-	cbm_open(10, device, 10, file);
-	cbm_read(10, &struct_name, 2);
-	fsize = cbm_read(10, &struct_name, sizeof(struct_name));
-	cbm_close(10);
-
-	return fsize;
-}*/
 /*---------------------------------------------------------------------------*/
 static void bbs_init(void) 
 {
@@ -526,11 +509,6 @@ void save_stats(void)
 	sprintf(message,"%d:%d %d/%d/%d - %s - %d,%d - %d,%d,%d,%d,%d,%d,%d,%d\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day, bbs_time.month, bbs_time.year, bbs_user.user_name, bbs_status.encoding, bbs_status.width, bbs_config.msg_id[1],bbs_config.msg_id[2],bbs_config.msg_id[3],bbs_config.msg_id[4],bbs_config.msg_id[5],bbs_config.msg_id[6],bbs_config.msg_id[7],bbs_config.msg_id[8]);
 	cbm_write(4, message, strlen(message));
 }
-/*---------------------------------------------------------------------------*/
-/*void bbs_log(char *message ){
-
-  cbm_save (BBS_LOG_FILE, board.sys_device, &message, strlen(message));
-}*/
 /*---------------------------------------------------------------------------*/
 void bbs_splash(unsigned short mode) 
 {
@@ -1243,47 +1221,6 @@ PROCESS_THREAD(settime_process, ev, data)
 
 
 /*---------------------------------------------------------------------------*/
-/*static void
-replace_braces(char *commandline)
-{
-  char *ptr;
-  int level = 0;
-  
-  for(ptr = commandline; *ptr != 0; ++ptr) {
-    if(*ptr == '{') {
-      if(level == 0) {
-	*ptr = ' ';
-      }
-      ++level;
-    } else if(*ptr == '}') {
-      --level;
-      if(level == 0) {
-	*ptr = ' ';
-      }
-    }
-  }
-}*/
-/*---------------------------------------------------------------------------*/
-/*static char *
-find_pipe(char *commandline)
-{
-  char *ptr;
-  int level = 0;
-  
-  for(ptr = commandline; *ptr != 0; ++ptr) {
-    if(*ptr == '{') {
-      ++level;
-    } else if(*ptr == '}') {
-      --level;
-    } else if(*ptr == '|') {
-      if(level == 0) {
-	return ptr;
-      }
-    }
-  }
-  return NULL;
-}*/
-/*---------------------------------------------------------------------------*/
 static struct shell_command *
 start_command(char *commandline, struct shell_command *child)
 {
@@ -1494,24 +1431,6 @@ shell_output_str(struct shell_command *c, char *text1, char *text2)
 	}
 }
 /*---------------------------------------------------------------------------*/
-/*void
-shell_output(struct shell_command *c,
-	     void *data1, int len1,
-	     const void *data2, int len2)
-{
-  if(c != NULL && c->child != NULL) {
-    input_to_child_command(c->child, data1, len1, data2, len2);
-  } else {
-    shell_default_output(data1, len1, data2, len2);
-  }
-}*/
-/*---------------------------------------------------------------------------*/
-/*void
-shell_unregister_command(struct shell_command *c)
-{
-  list_remove(commands, c);
-}*/
-/*---------------------------------------------------------------------------*/
 void
 shell_register_command(struct shell_command *c)
 {
@@ -1536,7 +1455,6 @@ shell_register_command(struct shell_command *c)
 PROCESS_THREAD(shell_process, ev, data)
 {
   static struct process *started_process;
-  /*static struct etimer bbs_session_timer;*/
   struct shell_input *input;
   int ret;
 
@@ -1545,7 +1463,6 @@ PROCESS_THREAD(shell_process, ev, data)
   /* Let the system start up before showing the prompt. */
   PROCESS_PAUSE();
   
-  /*etimer_set(&bbs_session_timer, BBS_SESSION_TIMEOUT);*/
 
   while(1) {
   
@@ -1554,7 +1471,6 @@ PROCESS_THREAD(shell_process, ev, data)
     if (ev == shell_event_input)
     {
       input = data;
-      /*etimer_reset(&bbs_session_timer);*/
       ret = shell_start_command(input->data1, input->len1, NULL,
 				&started_process);
       if(started_process != NULL && ret == SHELL_FOREGROUND && process_is_running(started_process)) {
@@ -1570,7 +1486,6 @@ PROCESS_THREAD(shell_process, ev, data)
       //bbs_unlock();
     }
     if(bbs_status.status>STATUS_HANDLE && front_process == &shell_process) {
-      //etimer_set(&bbs_session_timer, BBS_SESSION_TIMEOUT);
       shell_prompt(bbs_status.prompt);
     }
   
@@ -1652,47 +1567,6 @@ shell_init(void)
 
   bbs_status.status=STATUS_UNLOCK;
 }
-/*---------------------------------------------------------------------------*/
-/*unsigned long
-shell_strtolong(const char *str, const char **retstr)
-{
-  int i;
-  unsigned long num = 0;
-  const char *strptr = str;
-
-  if(str == NULL) {
-    return 0;
-  }
-  
-  while(*strptr == ' ') {
-    ++strptr;
-  }
-  
-  for(i = 0; i < 10 && isdigit(strptr[i]); ++i) {
-    num = num * 10 + strptr[i] - '0';
-  }
-  if(retstr != NULL) {
-    if(i == 0) {
-      *retstr = str;
-    } else {
-      *retstr = strptr + i;
-    }
-  }
-  
-  return num;
-}*/
-/*---------------------------------------------------------------------------*/
-/*unsigned long
-shell_time(void)
-{
-  return clock_seconds() + timer_offset;
-}*/
-/*---------------------------------------------------------------------------*/
-/*void
-shell_set_time(unsigned long seconds)
-{
-  timer_offset = seconds - clock_seconds();
-}*/
 /*---------------------------------------------------------------------------*/
 static int
 bbs_try_lock_for_session(void)

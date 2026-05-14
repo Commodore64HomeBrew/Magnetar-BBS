@@ -145,37 +145,6 @@ map_ascii_to_petscii(unsigned char c)
 }
 
 /*-----------------------------------------------------------------------------------*/
-/*void
-petsciiconv_toascii(char *buf, unsigned int len)
-{
-  unsigned int i;
-  char *ptr;
-  char c;
-  
-  ptr = buf;
-  for(i = len; i > 0; --i) {
-    c = *ptr;
-    if(c == 0x0a) {
-      c = 0x0d;
-    } else if(c == 0x0d) {
-      c = 0x0a;
-    }
-    if(c != 0x40) {
-      switch (c & 0xe0) {
-      case 0x40:                
-      case 0x60:
-        c ^= 0x20;
-        break;
-      case 0xc0:               
-        c ^= 0x80;
-        break;
-      }
-    }
-    *ptr = c & 0x7f;
-    ++ptr;
-  }
-}*/
-//petsciiconv_toascii(char *buf, unsigned int len)
 void
 petscii_to_ascii(char *buf, unsigned int len)
 {

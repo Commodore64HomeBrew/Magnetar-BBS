@@ -105,6 +105,7 @@ unsigned int sd_len;
 	uint8_t col1c = (c); \
 	if(col1c == ISO_cr || col1c == ISO_nl) { \
 		col_num = 0; \
+	} else if(BBS_PETSCII_ATTR0(col1c)) { \
 	} else if(col1c == 0x09u) { \
 		if(col_num < bbs_status.width) { ++col_num; } \
 	} else if(TELNETD_COL1_CELL(col1c)) { \
@@ -114,10 +115,19 @@ unsigned int sd_len;
 
 #define TELNETD_LAST_SPACE_NONE 255u
 
+/* PETSCII soft-wrap: bp[row]=buf index of row start (POP column from buf, no tail array). */
+#define TELWRAP_MAX_ROWS TELNETD_CONF_NUMLINES
+static unsigned char telwrap_bp[TELWRAP_MAX_ROWS];
+static unsigned char telwrap_tr;
+
+#define TELWRAP_LINE_RESET() do { \
+	telwrap_tr = 0; \
+	telwrap_bp[0] = 0u; \
+} while(0)
+
 /* After CR-ended line, absorb one following LF (Telnet NVT / CRLF bridges). */
 static unsigned char telnetd_ignore_lf_after_cr;
 
-//static struct telnetd_buf buf;
 static struct timer silence_timer;
 
 TELNETD_STATE s;
@@ -133,6 +143,7 @@ static void telnetd_feed(const unsigned char *ptr, unsigned int len);
 static struct uip_conn *primary_conn;
 /* 1 until first inbound segment is consumed (probe reject check). */
 static unsigned char telnetd_tcp_firstrx;
+static unsigned int telnetd_reject_len;
 #else
 /* 1 until first inbound byte opens session (like TCP: no shell until peer talks). */
 static unsigned char serial_waiting_peer;
@@ -142,8 +153,6 @@ static void telnetd_serial_disconnect(void);
 static unsigned int telnetd_serial_write(const void *vd, unsigned int len);
 static void telnetd_serial_tx(void);
 #endif
-
-//static uint8_t connected;
 
 /*---------------------------------------------------------------------------*/
 static void
@@ -166,6 +175,105 @@ telnetd_rescan_last_space(void)
 
 
 /*---------------------------------------------------------------------------*/
+static unsigned char
+telwrap_ttl_trimmed(unsigned short rs, unsigned short ex, unsigned char wmax)
+{
+	unsigned short bx, j;
+	unsigned char sim, ch;
+
+	bx = ex;
+	while(bx > rs && BWS_WORD_BREAK((unsigned char)s.buf[(int)(bx - 1u)]) != 0u) {
+		--bx;
+	}
+	sim = 0;
+	for(j = rs; j < bx; ++j) {
+		ch = (unsigned char)s.buf[(int)j];
+		if(ch == ISO_cr || ch == ISO_nl) {
+			sim = 0;
+			continue;
+		}
+		if(ch == PETSCII_UP || ch == PETSCII_DOWN || ch == PETSCII_LEFT ||
+		    ch == PETSCII_RIGHT || ch == PETSCII_CLRSCN || ch == PETSCII_HOME) {
+			continue;
+		}
+		if(BBS_PETSCII_ATTR0(ch)) {
+			continue;
+		}
+		if(ch == 0x09u) {
+			if(sim < wmax) {
+				++sim;
+			}
+		} else if(TELNETD_COL1_CELL(ch)) {
+			++sim;
+		}
+	}
+	if(sim > wmax && wmax != 0u) {
+		sim = wmax - 1u;
+	}
+	return sim;
+}
+
+/*---------------------------------------------------------------------------*/
+static void
+telwrap_echo_dls(unsigned char hi, unsigned char lo)
+{
+	unsigned char k;
+
+	for(k = hi; k > lo; --k) {
+		(void)buf_putc_raw(dl);
+	}
+}
+
+/*---------------------------------------------------------------------------*/
+static void
+telwrap_pop_paint(void)
+{
+	unsigned char nsteps, w;
+	unsigned short rs;
+
+	w = (unsigned char)bbs_status.width;
+	rs = (unsigned short)telwrap_bp[(int)telwrap_tr];
+	col_num = telwrap_ttl_trimmed(rs, (unsigned short)s.bufptr, w);
+	if(col_num < w && s.bufptr > (unsigned char)rs &&
+	    BWS_WORD_BREAK((unsigned char)s.buf[(int)s.bufptr - 1u]) != 0u)
+		++col_num;
+	if(bbs_status.encoding != 0u) {
+		return;
+	}
+	(void)buf_putc_raw(PETSCII_UP);
+	nsteps = col_num;
+	while(nsteps != 0u) {
+		(void)buf_putc_raw(PETSCII_RIGHT);
+		--nsteps;
+	}
+}
+
+/*---------------------------------------------------------------------------*/
+static void
+telwrap_fixup_delete(unsigned char del_idx)
+{
+	unsigned char k;
+
+	for(k = telwrap_tr; k != 0u; --k) {
+		if(telwrap_bp[k] > del_idx) {
+			--telwrap_bp[k];
+		}
+	}
+}
+
+/*---------------------------------------------------------------------------*/
+static void
+telwrap_commit_row_finish(unsigned char next_first_idx)
+{
+	if(bbs_status.echo != 1u)
+		return;
+	if(telwrap_tr + 1u < TELWRAP_MAX_ROWS) {
+		++telwrap_tr;
+		telwrap_bp[telwrap_tr] = next_first_idx;
+	}
+}
+
+/*---------------------------------------------------------------------------*/
 static void
 buf_init(void)
 {
@@ -174,6 +282,7 @@ buf_init(void)
   buf.size = BBS_BUFFER_SIZE;
   /* No pending TCP acknowledgement window into the drained ring */
   s.numsent = 0;
+  TELWRAP_LINE_RESET();
 }
 
 /*---------------------------------------------------------------------------*/
@@ -268,12 +377,6 @@ buf_append(const char *data, int len)
   return copylen;
 }
 /*---------------------------------------------------------------------------*/
-/*static void
-buf_copyto(char *to, int len)
-{
-  memcpy(to, &buf.bufmem[0], len);
-}*/
-/*---------------------------------------------------------------------------*/
 void
 telnetd_quit(void)
 {
@@ -355,24 +458,6 @@ shell_exit(void)
 {
   //log_message("\x9e", "shell exit");
   s.state = STATE_CLOSE;
-}*/
-/*---------------------------------------------------------------------------*/
-/*void stream_data(void){
-
-    sd_len = cbm_read(10, &sd_c, bbs_status.speed);
-    if(sd_len>0){
-      uip_send(&sd_c,bbs_status.speed);
-      s.numsent = bbs_status.speed;
-    }
-    else{
-      bbs_status.status = STATUS_LOCK;
-      //s.numsent = 0;
-      //cbm_close(10);
-      //Change boarder back to red
-      //bordercolor(2);
-      //Turn on the screen again
-      //poke(0xd011, peek(0xd011) | 0x10);
-    }
 }*/
 /*---------------------------------------------------------------------------*/
 #ifdef BBS_SERIAL_TRANSPORT
@@ -669,6 +754,7 @@ PROCESS_THREAD(telnetd_process, ev, data)
   }
 
 #ifndef BBS_SERIAL_TRANSPORT
+  telnetd_reject_len = (unsigned int)strlen(telnetd_reject_text);
   tcp_listen(UIP_HTONS(board.telnet_port));
 
   while(1) {
@@ -692,22 +778,6 @@ PROCESS_THREAD(telnetd_process, ev, data)
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
-/*static void
-acked(void)
-{
-  buf_pop(s.numsent);
-}*/
-/*---------------------------------------------------------------------------*/
-/*static void
-senddata(void)
-{
-  int len;
-  len = MIN((int)buf.used, uip_mss());
-  memcpy(uip_appdata, &buf.bufmem[buf.head], (unsigned int)len);
-  uip_send(uip_appdata, (unsigned int)len);
-  s.numsent = (unsigned int)len;
-}*/
-/*---------------------------------------------------------------------------*/
 static void
 get_char(uint8_t c)
 {
@@ -727,94 +797,93 @@ get_char(uint8_t c)
 		telnetd_ignore_lf_after_cr = 0u;
 	}
 
-	/* Issue 6: echo 1 and 2 share the same line editor (wrap, DEL, column).
-	   Mode 2 used to only ++col_num per byte and never wrapped at width. */
-	if(bbs_status.echo==1 || bbs_status.echo==2){
+	if(bbs_status.echo == 1u || bbs_status.echo == 2u) {
 
-		if (c == PETSCII_DEL){
-			if(s.bufptr>0){
+		if(c == PETSCII_DEL){
+			if(s.bufptr > 0u) {
 				unsigned char del_at;
 
 				del_at = s.bufptr - 1u;
 				--s.bufptr;
 				s.buf[(int)s.bufptr] = 0;
+				if(bbs_status.echo == 1u) {
+					telwrap_fixup_delete(del_at);
+				}
 				if(s.last_space_at == del_at) {
 					telnetd_rescan_last_space();
 				}
 
-        (void)buf_putc_raw(c);
+				(void)buf_putc_raw(c);
 
-        if(col_num>0){--col_num;}
+				if(bbs_status.echo == 1u && telwrap_tr > 0u &&
+				    (unsigned int)s.bufptr ==
+				    (unsigned int)telwrap_bp[(int)telwrap_tr]) {
+					--telwrap_tr;
+					telwrap_pop_paint();
+				} else if(col_num > 0u) {
+					--col_num;
+				}
 			}
-			return;	
+			return;
 		}
 
 		if(c==PETSCII_UP || c==PETSCII_DOWN || c==PETSCII_LEFT || c==PETSCII_RIGHT || c==PETSCII_CLRSCN || c==PETSCII_HOME){
 			return;
 		}
 
-    //if (c > 0x1F && c < 0x80) || (c > 0x9F)
-
-
-		if(col_num>=bbs_status.width){
+		if(bbs_status.echo == 2u) {
+			if(col_num >= (unsigned char)bbs_status.width && c != ISO_cr &&
+			    c != ISO_nl && !BBS_PETSCII_ATTR0((unsigned char)c) &&
+			    (TELNETD_COL1_CELL((unsigned char)c) || (unsigned char)c == 0x09u)) {
+				(void)buf_putc_raw(cr);
+				col_num = 0;
+			}
+			(void)buf_putc_raw(c);
+			TELNETD_COL1_BUMP_AFTER_ECHO(c);
+		} else if(col_num>=bbs_status.width){
 
 			if(c == ISO_cr || c == ISO_nl) {
-				/* Issue 2: at right margin these were skipped by the inner
-				   wrap branch, so nothing was echoed while buffer logic still
-				   ran — desynced display from line state. */
 				(void)buf_putc_raw(c);
 				col_num = 0;
 			} else {
 
-				if(BWS_WORD_BREAK(c))
-      			{
-					//jump to next line
-          (void)buf_putc_raw(c);
-          (void)buf_putc_raw(cr);
+				if(BWS_WORD_BREAK(c)) {
+					telwrap_commit_row_finish((unsigned char)s.bufptr);
+					(void)buf_putc_raw(c);
+					(void)buf_putc_raw(cr);
+					col_num = 0;
+				} else {
 
-					col_num=0;
-				}
-				else
-      			{
-					/* Last committed char is at bufptr-1; c is not stored yet.
-					   bufptr was used as erase start (issue 1): extra DEL and
-					   s.buf[bufptr] was wrong index. Guard bufptr<1: no underread. */
 					if((int)s.bufptr < 1) {
+						telwrap_commit_row_finish((unsigned char)s.bufptr);
 						(void)buf_putc_raw(cr);
 						col_num = 0;
 						(void)buf_putc_raw(c);
 						TELNETD_COL1_BUMP_AFTER_ECHO(c);
 					} else {
-					/* Issue 4: use last_space_at to avoid O(n) backward scan. */
+
 					if(s.last_space_at != (unsigned char)TELNETD_LAST_SPACE_NONE
 					    && s.last_space_at < s.bufptr
 					    && BWS_WORD_BREAK(s.buf[(int)s.last_space_at])) {
-						unsigned char k;
-
-						for(k = s.bufptr - 1u; k > s.last_space_at; --k) {
-							(void)buf_putc_raw(dl);
-						}
+						telwrap_echo_dls(s.bufptr - 1u, s.last_space_at);
 						i = (int)s.last_space_at + 1;
 					} else {
-					unsigned short wj, kd;
+					unsigned short wj;
 
 					wj = bws_find_break_back(
 					    s.buf, 0u, (unsigned short)(s.bufptr - 1u), BWS_FIND_MODE_TELNET);
-					for(kd = (unsigned short)(s.bufptr - 1u); kd > wj; --kd) {
-						(void)buf_putc_raw(dl);
-					}
+					telwrap_echo_dls(s.bufptr - 1u, (unsigned char)wj);
 					if(BWS_WORD_BREAK(s.buf[(int)wj]) != 0u) {
 						i = (short)wj + 1;
 					} else {
 						i = 0;
 					}
 					}
-					/* Issue 7: with no word break in the buffer, the while stops
-					   at i==0 and never issues dl for s.buf[0] (i>0 is false).
-					   One extra del removes that last char from the old row. */
 					if(i == 0 && (int)s.bufptr > 0) {
 						(void)buf_putc_raw(dl);
 					}
+
+					telwrap_commit_row_finish((unsigned char)i);
 
 					(void)buf_putc_raw(cr);
 					for(n = i; n < (int)s.bufptr; ++n) {
@@ -871,13 +940,16 @@ get_char(uint8_t c)
 		if(bbs_status.encoding==1){ascii_to_petscii(s.buf, TELNETD_CONF_LINELEN);}
 		//if(bbs_status.encoding==2){atascii_to_petscii(s.buf, TELNETD_CONF_LINELEN);}
 		//PRINTF("telnetd: get_char '%.*s'\n", s.bufptr, s.buf);
+		TELWRAP_LINE_RESET();
 		shell_input(s.buf, s.bufptr);
 		s.bufptr = 0;
 		s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
+		col_num = 0;
 
 	}
 
 }
+
 /*---------------------------------------------------------------------------*/
 static void
 sendopt(uint8_t option, uint8_t value)
@@ -1004,6 +1076,13 @@ nomatch:
   return 0u;
 }
 
+static void
+telnetd_tcp_conn_uclose(void)
+{
+  uip_close();
+  tcp_markconn(uip_conn, NULL);
+}
+
 static unsigned char
 newdata(void)
 {
@@ -1022,8 +1101,7 @@ newdata(void)
         }
         s.connected = 0;
         primary_conn = NULL;
-        uip_close();
-        tcp_markconn(uip_conn, NULL);
+        telnetd_tcp_conn_uclose();
         return 1;
       }
     }
@@ -1040,14 +1118,13 @@ telnetd_appcall(void *ts)
      ignore anything not coming from the primary uip_conn. */
   if(s.connected && primary_conn != NULL && uip_conn != primary_conn && ts == (void *)0) {
     if(uip_connected()) {
-      uip_send(telnetd_reject_text, strlen(telnetd_reject_text));
+      uip_send(telnetd_reject_text, telnetd_reject_len);
       tcp_markconn(uip_conn, (char *)1);
     } else {
       /* Stale tcp after primary moved to another uip_conn (e.g. new login while
        * old socket not closed). uip_connected() is only true during SYN
        * handshake; idle sessions must be closed explicitly. */
-      uip_close();
-      tcp_markconn(uip_conn, NULL);
+      telnetd_tcp_conn_uclose();
     }
     return;
   }
@@ -1056,8 +1133,7 @@ telnetd_appcall(void *ts)
      never ACKs idle-only stacks stall here — (char*)2 after one poll, then force close. */
   if(ts == (char *)1) {
     if(uip_acked()) {
-      uip_close();
-      tcp_markconn(uip_conn, NULL);
+      telnetd_tcp_conn_uclose();
     } else if(uip_poll()) {
       tcp_markconn(uip_conn, (char *)2);
     }
@@ -1068,8 +1144,7 @@ telnetd_appcall(void *ts)
       uip_close();
       tcp_markconn(uip_conn, NULL);
     } else if(uip_poll()) {
-      uip_close();
-      tcp_markconn(uip_conn, NULL);
+      telnetd_tcp_conn_uclose();
     }
     return;
   }
@@ -1092,7 +1167,7 @@ telnetd_appcall(void *ts)
       shell_start();
       ts = (char *)0;
     } else {
-      uip_send(telnetd_reject_text, strlen(telnetd_reject_text));
+      uip_send(telnetd_reject_text, telnetd_reject_len);
       /* Busy text only: mark non-NULL and close on next poll,
          so the reject text can actually get transmitted. */
       tcp_markconn(uip_conn, (char *)1);
@@ -1150,8 +1225,8 @@ telnetd_appcall(void *ts)
 	//File streaming code
 	sd_len = cbm_read(10, &sd_c, bbs_status.speed);
 	if(sd_len>0){
-		uip_send(&sd_c,bbs_status.speed);
-		s.numsent = bbs_status.speed;
+		uip_send(&sd_c, sd_len);
+		s.numsent = sd_len;
 	}
 	else{
 		bbs_status.status = STATUS_LOCK;
@@ -1187,18 +1262,11 @@ telnetd_appcall(void *ts)
     if(uip_poll()) {
       if(timer_expired(&silence_timer)) {
         if(s.state != STATE_CLOSE || buf.used == 0u) {
-          uip_close();
-          tcp_markconn(uip_conn, NULL);
+          telnetd_tcp_conn_uclose();
         }
       }
     }
   }
 }
 #endif /* !BBS_SERIAL_TRANSPORT */
-/*---------------------------------------------------------------------------*/
-/*void
-telnetd_init(void)
-{
-  process_start(&telnetd_process, NULL);
-}*/
 /*---------------------------------------------------------------------------*/

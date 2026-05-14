@@ -342,9 +342,6 @@ int shell_start_command(char *commandline, int commandline_len,
  */
 //unsigned long shell_strtolong(const char *str, const char **retstr);
 
-unsigned long shell_time(void);
-void shell_set_time(unsigned long seconds);
-
 //int ssStreamSEQFile(ST_FILE *pstFile, void *pvBuffer, unsigned int uiBuffSize);
 /**
  * @}
