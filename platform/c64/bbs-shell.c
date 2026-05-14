@@ -42,7 +42,6 @@ BBS_USER_REC bbs_user;
 BBS_USER_STATS bbs_usrstats;
 BBS_SYSTEM_STATS bbs_sysstats;
 BBS_TIME_REC bbs_time;
-extern TELNETD_STATE s;
 extern BBS_BUFFER buf;
 
 unsigned short bbs_locked=0;
@@ -61,12 +60,6 @@ SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_proc
 static char shell_serial_input_line[TELNETD_CONF_LINELEN + 1];
 static struct shell_input shell_serial_input_holder;
 #endif
-
-//PROCESS(shell_killall_process, "killall");
-//SHELL_COMMAND(killall_command, "killall", "killall : stop all running commands", &shell_killall_process);
-
-//PROCESS(shell_kill_process, "kill");
-//SHELL_COMMAND(kill_command, "kill", "kill <command> : stop a specific command", &shell_kill_process);
 
 /*---------------------------------------------------------------------------*/
 PROCESS(version_process, "version");
@@ -107,29 +100,42 @@ void bbs_defaults(void)
   sprintf(bbs_status.prompt, "");
 
 }
+
+static int
+login_token_eq(const char *in, char key)
+{
+  char c = in[0];
+
+  if(c == 0 || in[1] != 0) {
+    return 0;
+  }
+  if(key >= 'a' && key <= 'z' && c >= 'A' && c <= 'Z') {
+    c += 32;
+  }
+  return c == key;
+}
 /*---------------------------------------------------------------------------*/
-void set_prompt(void) 
+void set_prompt(void)
 {
 	unsigned short next_msg;
-	next_msg = bbs_usrstats.current_msg[bbs_status.board_id]+1;
+	unsigned char pet;
 
-	
-	if(next_msg > bbs_config.msg_id[bbs_status.board_id]){
-		if(bbs_status.encoding==0){
+	next_msg = bbs_usrstats.current_msg[bbs_status.board_id] + 1u;
+	pet = (bbs_status.encoding == 0);
+
+	if(next_msg > bbs_config.msg_id[bbs_status.board_id]) {
+		if(pet) {
 			sprintf(bbs_status.prompt, "\r\n\x12\x9fsub:\x05%d\x1cmsgs:\x05%d\x92\x9f>\x05 ", bbs_status.board_id, bbs_config.msg_id[bbs_status.board_id]);
-		}
-		else{
+		} else {
 			sprintf(bbs_status.prompt, "\r\nsub:%d msgs:%d> ", bbs_status.board_id, bbs_config.msg_id[bbs_status.board_id]);
 		}
-	}
-	else{
-		if(bbs_status.encoding==0){
+	} else {
+		if(pet) {
 			sprintf(bbs_status.prompt, "\r\n\x12\x9fsub:\x05%d\x1eret=\x05%d\x1c/\x05%d\x92\x9f>\x05 ", bbs_status.board_id, next_msg, bbs_config.msg_id[bbs_status.board_id]);
-		}
-		else{
+		} else {
 			sprintf(bbs_status.prompt, "\r\nsub:%d ret=%d / %d> ", bbs_status.board_id, next_msg, bbs_config.msg_id[bbs_status.board_id]);
 		}
-	}	
+	}
 }
 /*---------------------------------------------------------------------------*/
 /*char load_struct(struct struct_name *,unsigned char *prefix, unsigned char *filename, unsigned char device)
@@ -189,8 +195,6 @@ static void bbs_init(void)
 	board.userstats_device = 8;
 	sprintf(board.userstats_prefix, "//u/s/");
 
-	sprintf(file, "%s:%s",board.sys_prefix, BBS_CFG_FILE);
-
 	/* read BBS base configuration */
 
 	sprintf(board.sub_names[0], "devlog & issues");
@@ -228,7 +232,7 @@ static void bbs_init(void)
   //fsize = load_struct(&bbs_config, board.sys_prefix, BBS_CFG_FILE, board.sys_device);
   
   
-  sprintf(file, "%s:%s",board.sys_prefix, BBS_CFG_FILE);
+  bbs_path_sys_colon((char *)file, BBS_CFG_FILE);
 
   cbm_open(10, board.sys_device, 10, file);
   cbm_read(10, &bbs_config, 2);
@@ -259,7 +263,7 @@ static void bbs_init(void)
 
 
   /* read BBS stats file */
-  sprintf(file, "%s:%s",board.sys_prefix, BBS_STATS_FILE);
+  bbs_path_sys_colon((char *)file, BBS_STATS_FILE);
 
   cbm_open(10, board.sys_device, 10, file);
   cbm_read(10, &bbs_sysstats, 2);
@@ -303,6 +307,15 @@ user_stats(void){
 	sprintf(message,"\x9eyour calls:\x05 %hu", bbs_usrstats.num_calls);
 	shell_output_str(NULL, message, "");
 
+}
+
+static void
+bbs_record_last_caller(void)
+{
+  if(++bbs_sysstats.caller_ptr >= BBS_STATS_USRS) {
+    bbs_sysstats.caller_ptr = 0;
+  }
+  strcpy(bbs_sysstats.last_callers[bbs_sysstats.caller_ptr], bbs_user.user_name);
 }
 /*---------------------------------------------------------------------------*/
 void system_stats(void)
@@ -502,7 +515,7 @@ void save_stats(void)
 	char message[80];
 
 	//Save system stats:
-	sprintf(file, "@%s:%s",board.sys_prefix, BBS_STATS_FILE);
+	bbs_path_sys_at((char *)file, BBS_STATS_FILE);
 	cbm_save (file, board.sys_device, &bbs_sysstats, sizeof(bbs_sysstats));
 
 	//Save user stats:
@@ -536,7 +549,7 @@ void bbs_lock(void)
   bordercolor(2);
   //Blank the screen to speed things up
   //poke(0xd011, peek(0xd011) & 0xef);
-  if(bbs_status.login==1){
+  if(bbs_status.login) {
     save_stats();
     //bbs_status.login=0;
   }
@@ -556,8 +569,8 @@ void bbs_unlock(void)
   poke(0xd011, peek(0xd011) | 0x10);
 
   //Clean up any open files
-  /* Do not zero s.numsent: ACK processing still drains buf via buf_ack_sent(numsent).
-     Clearing it mid-logout retriggers the same outbound bytes → duplicate/garbled art. */
+  /* Do not clear stream sent count mid-logout: ACK path still drains buf.
+     Clearing it retriggers the same outbound bytes → duplicate/garbled art. */
   cbm_close(10);
 
 
@@ -566,8 +579,7 @@ void bbs_unlock(void)
   bbs_locked=0;
   process_exit(&bbs_timer_process);
   //shell_exit();
-  s.state = STATE_CLOSE;
-  telnetd_kick_disconnect();
+  bbs_transport_session_close();
 }
 /*---------------------------------------------------------------------------*/
 int bbs_get_user(char *data)
@@ -681,13 +693,11 @@ void bbs_login()
 
 	//**********************************************************************
 
-	for(k=1; k<=BBS_MAX_BOARDS; ++k){
+	for(k = 1; k <= BBS_MAX_BOARDS; ++k) {
 		total_msgs += bbs_config.msg_id[k];
-	}
-	for(k=1; k<=BBS_MAX_BOARDS; ++k){
 		user_msgs += bbs_usrstats.current_msg[k];
 	}
-	unread_msgs = total_msgs-user_msgs;
+	unread_msgs = total_msgs - user_msgs;
 
 	sprintf(message,"\r\n\x9eunread msgs:\x05 %hu", unread_msgs);
 	shell_output_str(NULL, message, "");
@@ -701,9 +711,18 @@ void bbs_login()
 	set_prompt();
 	shell_prompt(bbs_status.prompt);
 	process_start(&bbs_timer_process, NULL);
-	front_process=&shell_process;
+  front_process=&shell_process;
 }
 
+
+static void
+login_stats_continue(void)
+{
+  bbs_record_last_caller();
+  system_stats();
+  shell_output_str(NULL, "\r\nhit return to continue", "");
+  bbs_status.status = STATUS_STATS;
+}
 
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_login_process, ev, data)
@@ -733,56 +752,39 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             }
 
 
-            if(! strcmp(input->data1, "8")){
-              //log_message("[debug] encoding: ", input->data1);
+            if(login_token_eq(input->data1, '8')) {
               bbs_status.encoding=0;
-              //bbs_status.echo=1;
               bbs_status.wrap=1;
               bbs_status.width=BBS_80_COL;
               strcpy(bbs_status.encoding_suffix, BBS_PET80_SUFFIX);
             }
 
-            else if(! strcmp(input->data1, "4")){
-              //log_message("[debug] encoding: ", input->data1);
+            else if(login_token_eq(input->data1, '4')) {
               bbs_status.encoding=0;
-              //bbs_status.echo=1;
               bbs_status.wrap=1;
-              //bbs_status.width=BBS_40_COL;
               strcpy(bbs_status.encoding_suffix, BBS_PET40_SUFFIX);
             }
-            else if(! strcmp(input->data1, "2")){
-              //log_message("[debug] encoding: ", input->data1);
+            else if(login_token_eq(input->data1, '2')) {
               bbs_status.encoding=0;
-              //bbs_status.echo=1;
               bbs_status.wrap=1;
               bbs_status.width=BBS_22_COL;
               strcpy(bbs_status.encoding_suffix, BBS_PET22_SUFFIX);
             }
 
 
-            else if(! strcmp(input->data1, "l") || ! strcmp(input->data1, "L")){
-              //log_message("[debug] encoding: ", input->data1);
-              //bbs_status.encoding=1;
+            else if(login_token_eq(input->data1, 'l')) {
               bbs_status.echo=0;
-              //bbs_status.wrap=0;
               bbs_status.width=BBS_80_COL;
               strcpy(bbs_status.encoding_suffix, BBS_ASCII_SUFFIX);
             }
-            else if(! strcmp(input->data1, "e") || ! strcmp(input->data1, "E")){
-              //log_message("[debug] encoding: ", input->data1);
+            else if(login_token_eq(input->data1, 'e')) {
               bbs_status.encoding=1;
-              //bbs_status.echo=1;
-              //bbs_status.wrap=0;
-              //bbs_status.width=BBS_40_COL;
               strcpy(bbs_status.encoding_suffix, BBS_ASCII_SUFFIX);
             }
 
-            else if(! strcmp(input->data1, "t") || ! strcmp(input->data1, "T")){
-              //log_message("[debug] encoding: ", input->data1);
+            else if(login_token_eq(input->data1, 't')) {
               bbs_status.encoding=2;
               bbs_status.echo=1;
-              //bbs_status.wrap=1;
-              //bbs_status.width=BBS_40_COL;
               strcpy(bbs_status.encoding_suffix, BBS_ASCII_SUFFIX);
             }
 
@@ -831,16 +833,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
           case STATUS_PASSWD: {
             if(! strcmp(input->data1, bbs_user.user_pwd)) {
 
-				bbs_sysstats.caller_ptr++;
-				if(bbs_sysstats.caller_ptr>=BBS_STATS_USRS){
-					bbs_sysstats.caller_ptr=0;
-				}
-				strcpy(bbs_sysstats.last_callers[bbs_sysstats.caller_ptr], bbs_user.user_name);
-
-				system_stats();
-
-              	shell_output_str(NULL, "\r\nhit return to continue", "");
-				bbs_status.status=STATUS_STATS;
+				login_stats_continue();
 
             } else {
               shell_output_str(NULL, "wrong password.", "");
@@ -863,19 +856,10 @@ PROCESS_THREAD(bbs_login_process, ev, data)
           }
           case STATUS_CONFUSR: {
 
-            if(! strcmp(input->data1, "y") || ! strcmp(input->data1, "Y")){
+            if(login_token_eq(input->data1, 'y')) {
               bbs_save_user();
 
-				bbs_sysstats.caller_ptr++;
-				if(bbs_sysstats.caller_ptr>=BBS_STATS_USRS){
-					bbs_sysstats.caller_ptr=0;
-				}
-				strcpy(bbs_sysstats.last_callers[bbs_sysstats.caller_ptr], bbs_user.user_name);
-
-				system_stats();
-
-              	shell_output_str(NULL, "\r\nhit return to continue", "");
-				bbs_status.status=STATUS_STATS;
+				login_stats_continue();
 
               //bbs_login();
             }
@@ -908,7 +892,6 @@ static void
 command_kill(struct shell_command *c)
 {
   if(c != NULL) {
-    //shell_output_str(&killall_command, "Stopping command ", c->command);
     process_exit(c->process);
   }
 }
@@ -929,13 +912,10 @@ killall(void)
 PROCESS_THREAD(bbs_timer_process, ev, data)
 {
   static struct etimer bbs_session_timer;
-  char szBuff[20];
 
   PROCESS_BEGIN();
-  if (bbs_status.status>STATUS_HANDLE)
-     etimer_set(&bbs_session_timer, BBS_SESSION_TIMEOUT);
-  else
-     etimer_set(&bbs_session_timer, BBS_LOGIN_TIMEOUT);
+  etimer_set(&bbs_session_timer,
+      bbs_status.status > STATUS_HANDLE ? BBS_SESSION_TIMEOUT : BBS_LOGIN_TIMEOUT);
 
   while (1) {
 
@@ -943,12 +923,8 @@ PROCESS_THREAD(bbs_timer_process, ev, data)
                               etimer_expired(&bbs_session_timer));
 
      if(ev == shell_event_input) {
-       /* Activity on a completed line: extend login or session window. */
-       if(bbs_status.status > STATUS_HANDLE) {
-         etimer_set(&bbs_session_timer, BBS_SESSION_TIMEOUT);
-       } else {
-         etimer_set(&bbs_session_timer, BBS_LOGIN_TIMEOUT);
-       }
+       etimer_set(&bbs_session_timer,
+           bbs_status.status > STATUS_HANDLE ? BBS_SESSION_TIMEOUT : BBS_LOGIN_TIMEOUT);
      } else if(etimer_expired(&bbs_session_timer)) {
         if(bbs_status.status > STATUS_HANDLE) {
           process_post(PROCESS_BROADCAST, PROCESS_EVENT_TIMER, NULL);
@@ -956,57 +932,15 @@ PROCESS_THREAD(bbs_timer_process, ev, data)
           process_post(&bbs_login_process, PROCESS_EVENT_TIMER, NULL);
         }
 
-        sprintf(szBuff, "session timeout.");
-        shell_output_str(NULL, szBuff, "");
-        if(bbs_status.status > STATUS_HANDLE) {
-          etimer_set(&bbs_session_timer, BBS_SESSION_TIMEOUT);
-        } else {
-          etimer_set(&bbs_session_timer, BBS_LOGIN_TIMEOUT);
-        }
+        shell_output_str(NULL, "session timeout.", "");
+        etimer_set(&bbs_session_timer,
+            bbs_status.status > STATUS_HANDLE ? BBS_SESSION_TIMEOUT : BBS_LOGIN_TIMEOUT);
      }
   }
 
   PROCESS_END();
 }
 
-/*---------------------------------------------------------------------------*/
-/*PROCESS_THREAD(shell_killall_process, ev, data)
-{
-
-  PROCESS_BEGIN();
-
-  killall();
-  
-  PROCESS_END();
-}*/
-/*---------------------------------------------------------------------------*/
-/*PROCESS_THREAD(shell_kill_process, ev, data)
-{
-  struct shell_command *c;
-  char *name;
-  PROCESS_BEGIN();
-
-  name = data;
-  if(name == NULL || strlen(name) == 0) {
-    shell_output_str(&kill_command,
-		     "kill <command>: command name must be given", "");
-  }
-
-  for(c = list_head(commands);
-      c != NULL;
-      c = c->next) {
-    if(strcmp(name, c->command) == 0 &&
-       c != &kill_command &&
-       process_is_running(c->process)) {
-      command_kill(c);
-      PROCESS_EXIT();
-    }
-  }
-
-  shell_output_str(&kill_command, "Command not found: ", name);
-  
-  PROCESS_END();
-}*/
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(version_process, ev, data)
 {
@@ -1161,7 +1095,7 @@ PROCESS_THREAD(movie_process, ev, data)
 #ifdef BBS_SERIAL_TRANSPORT
 		bbs_serial_flush_outbound();
 #endif
-        	s.numsent = 0;
+        	bbs_transport_stream_clear_sent();
         	cbm_close(10);
         	//Change boarder back to red
         	bordercolor(2);
@@ -1175,7 +1109,7 @@ PROCESS_THREAD(movie_process, ev, data)
          //shell_output_str(NULL, "hit return to stop stream once playing\n\r", "");
 
 	set_prompt();
-	//shell_prompt(bbs_status.prompt);
+	shell_prompt(bbs_status.prompt);
 
 	//PROCESS_EXIT();
 	PROCESS_END();
@@ -1205,29 +1139,27 @@ PROCESS_THREAD(shell_exit_process, ev, data)
 
   unsigned char file[25];
   unsigned char prefix[20];
+  unsigned char enc0;
 
   PROCESS_BEGIN();
-	if(bbs_status.encoding==0){
+	enc0 = (bbs_status.encoding == 0);
+	if(enc0) {
 		shell_output_str(NULL, "\x8e", "");
 	}
 
-	if (bbs_status.encoding==0 && bbs_status.width > 22){
-		//Set the directory:
+	if(enc0 && bbs_status.width > 22) {
 		sprintf(prefix,"%sq/4/", board.sys_prefix);
 
-		//Seed the random number generator with the system clock seconds:
 		srand(clock_seconds());
 
-		//Pick a random file:
 		sprintf(file,"%d", ((rand() % 64)+1));
 
-		//Send the file:
 		bbs_banner(prefix, file, "", board.sys_device,0);
 
 	}
 	else{
-		sprintf(file,"%s", BBS_BANNER_LOGOUT);
-		bbs_banner(board.sys_prefix, file, bbs_status.encoding_suffix, board.sys_device,0);
+		bbs_banner(board.sys_prefix, (unsigned char *)BBS_BANNER_LOGOUT,
+		    bbs_status.encoding_suffix, board.sys_device, 0);
 
 	}
 	
@@ -1762,30 +1694,42 @@ shell_set_time(unsigned long seconds)
   timer_offset = seconds - clock_seconds();
 }*/
 /*---------------------------------------------------------------------------*/
+static int
+bbs_try_lock_for_session(void)
+{
+  if(bbs_locked == 1) {
+    bbs_transport_busy_reject();
+    log_message("\x96", "busy");
+    return 0;
+  }
+  bbs_lock();
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+void
+shell_preconnect_banner(void)
+{
+  shell_output_str(NULL, PETSCII_LOWER, board.board_name);
+  shell_prompt(BBS_ENCODING_STRING);
+}
+/*---------------------------------------------------------------------------*/
+void
+shell_start_after_probe(void)
+{
+  if(!bbs_try_lock_for_session()) {
+    return;
+  }
+  front_process = &bbs_login_process;
+}
+/*---------------------------------------------------------------------------*/
 void
 shell_start(void)
 {
-  /* set BBS parameters */
-  /*bbs_status.board_id=1;
-  bbs_config.msg_id=1;
-  process_start(&bbs_timer_process, NULL);*/
-  
-  if(bbs_locked == 1) {
-    //shell_exit(); //This disconnects the user!
-    s.state = STATE_CLOSE;
-    log_message("\x96","busy");
-  } else {
-    //bbs_locked=1;
-    bbs_lock();
-
-    shell_output_str(NULL, PETSCII_LOWER, board.board_name);
-
-    shell_prompt(BBS_ENCODING_STRING);
-
-    front_process=&bbs_login_process;
-  } 
-
-
+  if(!bbs_try_lock_for_session()) {
+    return;
+  }
+  shell_preconnect_banner();
+  front_process = &bbs_login_process;
 }
 /*---------------------------------------------------------------------------*/
 void

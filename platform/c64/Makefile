@@ -24,6 +24,8 @@ else
 # Default program name; links full IPv4 + uIP + tcpip (RR-Net style deployment).
 CONTIKI_PROJECT := contiki-bbs
 endif
+# Autostart entry: contiki-bbs.c pulls contiki-net (TCP only); magnetar-serial.c is serial-only.
+# Each file #errors if BBS_SERIAL_TRANSPORT does not match; shared code stays ifdef-clean.
 
 all: $(CONTIKI_PROJECT)
 

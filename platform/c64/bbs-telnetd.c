@@ -299,6 +299,25 @@ telnetd_kick_disconnect(void)
 {
 }
 #endif /* BBS_SERIAL_TRANSPORT */
+
+void
+bbs_transport_session_close(void)
+{
+  s.state = STATE_CLOSE;
+  telnetd_kick_disconnect();
+}
+
+void
+bbs_transport_busy_reject(void)
+{
+  s.state = STATE_CLOSE;
+}
+
+void
+bbs_transport_stream_clear_sent(void)
+{
+  s.numsent = 0u;
+}
 /*---------------------------------------------------------------------------*/
 void
 shell_prompt(char *str)
