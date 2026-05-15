@@ -41,6 +41,7 @@
 #include "contiki-net.h"
 #else
 #include <serial.h>
+#include <time.h> /* CLK_TCK: jiffies/sec, same basis as clock_seconds() in settime */
 #endif
 #include "bbs-encodings.h"
 #include "bbs-shell.h"
@@ -433,6 +434,40 @@ shell_prompt(char *str)
 #ifdef BBS_SERIAL_TRANSPORT
 extern const struct ser_params magnetar_serial_params;
 
+/* KERNAL 24-bit jiffy ($A2/$A1/$A0), advanced by CIA #1 IRQ — same tick family as settime/clock(). */
+static unsigned long
+telnetd_serial_jiffy24(void)
+{
+  unsigned char j0, j1, j2;
+
+  for(;;) {
+    j0 = *(volatile unsigned char *)0x00A2;
+    j1 = *(volatile unsigned char *)0x00A1;
+    j2 = *(volatile unsigned char *)0x00A0;
+    if(*(volatile unsigned char *)0x00A2 == j0) {
+      return (unsigned long)j0 | ((unsigned long)j1 << 8) | ((unsigned long)j2 << 16);
+    }
+  }
+}
+
+/* ~1s: drain modem connect garbage; CLK_TCK jiffies matches PAL/NTSC (see clock.c). */
+static void
+telnetd_serial_warmup_one_second(void)
+{
+  unsigned long t0;
+  unsigned char c;
+
+  t0 = telnetd_serial_jiffy24();
+  for(;;) {
+    while(ser_get((char *)&c) == SER_ERR_OK) {
+      (void)c;
+    }
+    if((telnetd_serial_jiffy24() - t0) >= (unsigned long)CLK_TCK) {
+      break;
+    }
+  }
+}
+
 static unsigned char telnetd_serial_hw_open;
 
 static unsigned char
@@ -476,6 +511,8 @@ telnetd_serial_on_connect(void)
   s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
   s.state = STATE_NORMAL;
   s.connected = 1;
+  timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
+  telnetd_serial_warmup_one_second();
   shell_start();
   timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
 }
@@ -640,6 +677,8 @@ telnetd_serial_poll_io(void)
        * modem still local-echoed keystrokes. */
       serial_waiting_peer = 0u;
       telnetd_serial_on_connect();
+      /* Byte that opened the session is modem noise; warmup already drained wire. */
+      continue;
     }
     if(s.connected != 0u) {
       timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
