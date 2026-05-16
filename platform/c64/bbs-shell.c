@@ -273,10 +273,6 @@ static void bbs_init(void)
 
   bbs_defaults();
   //set_prompt();
-
-  //siRet = em_load_driver (BBS_EMD_FILE);
-
-  //em_load(board.sys_prefix, BBS_BANNER_LOGIN, "", board.sys_device, 0);
   
 }
 /*---------------------------------------------------------------------------*/
@@ -1037,7 +1033,7 @@ PROCESS_THREAD(movie_process, ev, data)
 			bbs_status.status = STATUS_LOCK;
 			PROCESS_PAUSE();
 			//break;
-			
+
 			/*
 			input = data;
 

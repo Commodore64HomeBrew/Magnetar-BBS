@@ -77,7 +77,6 @@
 
 #define BBS_LOG_FILE           "bbs-log"
 
-#define BBS_EMD_FILE           "c64-ram.emd"
 #define BBS_CFG_FILE           "bbs-cfg"
 #define BBS_SETUP_FILE         "bbs-setup"
 
