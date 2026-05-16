@@ -8,11 +8,10 @@
 #ifndef __BBSDEFS_H_
 #define __BBSDEFS_H_
 
-#define BBS_STRING_VERSION "0.1.0"
-#define BBS_COPYRIGHT_STRING "\n\r        magnetar bbs 0.1.0 \n\r     (c) 2018-> by k. casteels\n\r           based on contiki bbs,\n\r     (c) 2009-2015 by n. haedecke\n\r           based on contiki os,\n\r     (c) 2003-2013 by adam dunkels\n\r"
+#define BBS_STRING_VERSION "1.0"
+#define BBS_COPYRIGHT_STRING "\n\r          Magnetar BBS 1.0 \n\r        2018-2026 K. Casteels\n\r        2009-2015 N. Haedecke\n\r        2003-2013 A. Dunkels\n\r"
 
 #define BBS_ENCODING_STRING "\n\rpetscii - 80col (8)\n\rpetscii - 40col (4)\n\rpetscii - 22col (2)\n\rascii w/ echo   (e)\n\rlinux or vt100  (l)\n\r\n\r>  "
-
 
 #define BBS_MODE_SHELL          0
 #define BBS_MODE_CONSOLE        1
@@ -38,7 +37,7 @@
 #ifdef BBS_SERIAL_TRANSPORT
 /* Raw serial: small chunks + few passes per tick avoid overrunning modem/bridge FIFOs. */
 #ifndef TELNETD_SERIAL_TX_CHUNK
-#define TELNETD_SERIAL_TX_CHUNK 1u
+#define TELNETD_SERIAL_TX_CHUNK 9u
 #endif
 #endif
 /* In-memory post body (lines appended until /s); separate from wire buffer. */
@@ -110,19 +109,19 @@
 
 
 
-#define PETSCII_LOWER           "\x0e"
-#define PETSCII_WHITE           "\x05"
-#define ISO_nl       	0x0a
-#define ISO_cr       	0x0d
-#define PETSCII_DEL  	0x14
-#define PETSCII_DOWN 	0x11
-#define PETSCII_UP   	0x91
-#define PETSCII_LEFT 	0x9d
+#define PETSCII_LOWER   "\x0e"
+#define PETSCII_WHITE   "\x05"
+#define ISO_nl       	  0x0a
+#define ISO_cr       	  0x0d
+#define PETSCII_DEL  	  0x14
+#define PETSCII_DOWN 	  0x11
+#define PETSCII_UP   	  0x91
+#define PETSCII_LEFT 	  0x9d
 #define PETSCII_RIGHT 	0x1d
 #define PETSCII_SPACE 	0x20
 #define PETSCII_CLRSCN  0x93
-#define PETSCII_HOME  	0x13 
-#define PETSCII_REVON	0x12
+#define PETSCII_HOME    0x13 
+#define PETSCII_REVON   0x12
 #define PETSCII_REVOFF	0x92
 
 /* PETSCII colour / mode bytes: zero terminal width (banner wrap + telnet soft wrap). */
@@ -149,6 +148,8 @@ typedef struct {
   unsigned char user_prefix[10];
   unsigned char userstats_device;
   unsigned char userstats_prefix[10];
+  unsigned char media_device;
+  unsigned char media_prefix[10];
   unsigned char sub_names[9][20];
   unsigned char dir_boost; 
 } BBS_BOARD_REC;

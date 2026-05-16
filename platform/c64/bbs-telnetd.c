@@ -490,14 +490,17 @@ telnetd_serial_hw_close_keep_offline(void)
   telnetd_serial_hw_open = 0u;
 }
 
-/* 1 = modem reports no carrier (SER_STATUS_DCD means NOT DCD). */
+/* 1 = no carrier / line down (SER_STATUS_DCD means NOT DCD). */
 static unsigned char
 telnetd_serial_modem_offline_explicit(void)
 {
   unsigned char st;
+  unsigned char err;
 
-  if(ser_status(&st) != SER_ERR_OK) {
-    return 0u;
+  err = ser_status(&st);
+  if(err != SER_ERR_OK) {
+    /* Mid-session status failure usually means port closed after remote hang-up. */
+    return (s.connected != 0u) ? 1u : 0u;
   }
   return (((st & SER_STATUS_DCD) != 0u) ? 1u : 0u);
 }
@@ -528,8 +531,11 @@ telnetd_serial_disconnect(void)
     save_stats();
     bbs_status.login = 0;
   }
-  shell_stop();
-  s.connected = 0;
+  /* shell_stop() -> bbs_unlock() shows "bbs disconnect". Skip if logout already ran. */
+  if(bbs_locked != 0u) {
+    shell_stop();
+  }
+  s.connected = 0u;
   serial_waiting_peer = 1u;
 }
 /*---------------------------------------------------------------------------*/
@@ -661,6 +667,7 @@ telnetd_serial_poll_io(void)
     }
   }
 
+  sg = SER_ERR_NO_DATA;
   while((sg = ser_get((char *)&c)) != SER_ERR_NO_DATA) {
     if(sg != SER_ERR_OK) {
       break;
@@ -689,17 +696,19 @@ telnetd_serial_poll_io(void)
     }
   }
 
+  if(sg != SER_ERR_OK && sg != SER_ERR_NO_DATA && s.connected != 0u) {
+    telnetd_serial_disconnect();
+    return;
+  }
+
+  if(s.connected != 0u && telnetd_serial_modem_offline_explicit() != 0u) {
+    telnetd_serial_disconnect();
+    return;
+  }
+
   if(s.state == STATE_CLOSE && s.connected != 0u) {
     s.state = STATE_NORMAL;
-    if(bbs_locked != 0u) {
-      telnetd_serial_disconnect();
-    } else {
-      /* bbs_unlock() clears bbs_locked before STATE_CLOSE; must still drop DTR. */
-      telnetd_serial_hw_close_keep_offline();
-      buf_init();
-      s.connected = 0u;
-      serial_waiting_peer = 1u;
-    }
+    telnetd_serial_disconnect();
     return;
   }
 
