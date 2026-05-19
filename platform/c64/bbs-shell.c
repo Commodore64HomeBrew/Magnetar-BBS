@@ -166,19 +166,19 @@ static void bbs_init(void)
 	board.telnet_port = 6400;
 	board.max_boards = 8;
 
-	board.subs_device = 9;
+	board.subs_device = 8;
 	sprintf(board.subs_prefix, "//s/");
 
-	board.sys_device = 9;
+	board.sys_device = 8;
 	sprintf(board.sys_prefix, "//x/");
 
-	board.user_device = 9;
+	board.user_device = 8;
 	sprintf(board.user_prefix, "//u/u/");
 
-	board.userstats_device = 9;
+	board.userstats_device = 8;
 	sprintf(board.userstats_prefix, "//u/s/");
 
-	board.media_device = 9;
+	board.media_device = 8;
 	sprintf(board.media_prefix, "//m/");
 
 	/* read BBS base configuration */
