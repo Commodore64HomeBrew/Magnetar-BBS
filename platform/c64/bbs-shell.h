@@ -111,7 +111,7 @@ void set_prompt(void);
  */
 void shell_init(void);
 
-void shell_start_processes(void);
+/** Magnetar hook: drain autostart events after shell_init (processes already started). */
 void magnetar_bbs_after_autostart(void);
 
 /**

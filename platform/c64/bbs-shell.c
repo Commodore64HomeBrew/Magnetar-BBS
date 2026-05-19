@@ -136,87 +136,35 @@ void set_prompt(void)
 	}
 }
 /*---------------------------------------------------------------------------*/
-static unsigned char bbs_disk_loaded;
-
-static void
-bbs_load_disk_config(void)
-{
-  int f;
-  int n;
-  char file[25];
-  unsigned char i;
-
-  if(bbs_disk_loaded != 0u) {
-    return;
-  }
-  bbs_disk_loaded = 1u;
-
-  bbs_path_sys_colon(file, BBS_CFG_FILE);
-  f = cfs_open(file, CFS_READ);
-  if(f >= 0) {
-    n = cfs_read(f, &bbs_config, (int)sizeof(bbs_config));
-    cfs_close(f);
-    if(n > 0) {
-      log_message("\x99", "config loaded from file");
-    } else {
-      log_message("\x96", "config file not found, using defaults");
-      for(i = 0; i <= board.max_boards; ++i) {
-        bbs_config.msg_id[i] = 0;
-      }
-    }
-  } else {
-    log_message("\x96", "config file not found, using defaults");
-    for(i = 0; i <= board.max_boards; ++i) {
-      bbs_config.msg_id[i] = 0;
-    }
-  }
-
-  bbs_path_sys_colon(file, BBS_STATS_FILE);
-  f = cfs_open(file, CFS_READ);
-  if(f >= 0) {
-    n = cfs_read(f, &bbs_sysstats, (int)sizeof(bbs_sysstats));
-    cfs_close(f);
-    if(n > 0) {
-      log_message("\x99", "stats loaded from file");
-    } else {
-      log_message("\x96", "stats file not found, using defaults");
-      bbs_sysstats.caller_ptr = 0;
-      bbs_sysstats.total_calls = 0;
-      bbs_sysstats.total_msgs = 0;
-      bbs_sysstats.day_ptr = 0;
-    }
-  } else {
-    log_message("\x96", "stats file not found, using defaults");
-    bbs_sysstats.caller_ptr = 0;
-    bbs_sysstats.total_calls = 0;
-    bbs_sysstats.total_msgs = 0;
-    bbs_sysstats.day_ptr = 0;
-  }
-}
-/*---------------------------------------------------------------------------*/
 static void bbs_init(void) 
 {
+  unsigned short fsize;
   unsigned long set_time;
+  unsigned char file[25];
   unsigned char i;
+
+  cbm_open(4, 4, 7, "");
 
 	sprintf(board.board_name, "\n\r     CENTRONIAN BBS\n\r");
 	board.telnet_port = 6400;
 	board.max_boards = 8;
 
-	board.subs_device = 9;
+	board.subs_device = 8;
 	sprintf(board.subs_prefix, "//s/");
 
-	board.sys_device = 9;
+	board.sys_device = 8;
 	sprintf(board.sys_prefix, "//x/");
 
-	board.user_device = 9;
+	board.user_device = 8;
 	sprintf(board.user_prefix, "//u/u/");
 
-	board.userstats_device = 9;
+	board.userstats_device = 8;
 	sprintf(board.userstats_prefix, "//u/s/");
 
-	board.media_device = 9;
+	board.media_device = 8;
 	sprintf(board.media_prefix, "//m/");
+
+	/* read BBS base configuration */
 
 	sprintf(board.sub_names[0], "the blackhole");
 	sprintf(board.sub_names[1], "the lounge     ");
@@ -240,13 +188,36 @@ static void bbs_init(void)
 
   clock_offset =  set_time - clock_seconds();
 
-  for(i = 0; i <= board.max_boards; ++i) {
-    bbs_config.msg_id[i] = 0;
+  bbs_path_sys_colon((char *)file, BBS_CFG_FILE);
+  cbm_open(10, board.sys_device, 10, file);
+  cbm_read(10, &bbs_config, 2);
+  fsize = cbm_read(10, &bbs_config, sizeof(bbs_config));
+  cbm_close(10);
+
+  if(fsize > 0) {
+    log_message("\x99", "config loaded from file");
+  } else {
+    log_message("\x96", "config file not found, using defaults");
+    for(i = 0; i <= board.max_boards; ++i) {
+      bbs_config.msg_id[i] = 0;
+    }
   }
-  bbs_sysstats.caller_ptr = 0;
-  bbs_sysstats.total_calls = 0;
-  bbs_sysstats.total_msgs = 0;
-  bbs_sysstats.day_ptr = 0;
+
+  bbs_path_sys_colon((char *)file, BBS_STATS_FILE);
+  cbm_open(10, board.sys_device, 10, file);
+  cbm_read(10, &bbs_sysstats, 2);
+  fsize = cbm_read(10, &bbs_sysstats, sizeof(bbs_sysstats));
+  cbm_close(10);
+
+  if(fsize > 0) {
+    log_message("\x99", "stats loaded from file");
+  } else {
+    log_message("\x96", "stats file not found, using defaults");
+    bbs_sysstats.caller_ptr = 0;
+    bbs_sysstats.total_calls = 0;
+    bbs_sysstats.total_msgs = 0;
+    bbs_sysstats.day_ptr = 0;
+  }
 
   bbs_defaults();
 }
@@ -1422,10 +1393,6 @@ PROCESS_THREAD(shell_process, ev, data)
 
   PROCESS_BEGIN();
 
-  /* Let the system start up before showing the prompt. */
-  PROCESS_PAUSE();
-  
-
   while(1) {
   
     PROCESS_WAIT_EVENT();
@@ -1521,16 +1488,12 @@ shell_init(void)
 
   shell_event_input = process_alloc_event();
 
-  bbs_status.status=STATUS_UNLOCK;
-}
-/*---------------------------------------------------------------------------*/
-void
-shell_start_processes(void)
-{
   process_start(&bbs_login_process, NULL);
   process_start(&shell_process, NULL);
   process_start(&shell_server_process, NULL);
   front_process = &bbs_login_process;
+
+  bbs_status.status=STATUS_UNLOCK;
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -1538,7 +1501,7 @@ magnetar_bbs_after_autostart(void)
 {
   unsigned char i;
 
-  shell_start_processes();
+  /* Drain autostart CONTINUE events before main loop (shell_init already started processes). */
   for(i = 0; i < 16u; ++i) {
     if(process_run() == 0 && process_nevents() == 0) {
       break;
@@ -1578,7 +1541,6 @@ shell_start_after_probe(void)
 void
 shell_start(void)
 {
-  bbs_load_disk_config();
   if(!bbs_try_lock_for_session()) {
     return;
   }
