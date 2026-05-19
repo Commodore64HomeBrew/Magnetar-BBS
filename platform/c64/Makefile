@@ -4,46 +4,39 @@ endif
 
 #
 # --- Default (omit BBS_SERIAL, or BBS_SERIAL=0): contiki-bbs.c64 -----------------
-# Contiki uIP/TCP on the C64; RR-Net / TFE / etc. (Ethernet drivers on disk, contiki.cfg).
+# Contiki uIP/TCP on the C64; CS8900A (RR-Net / TFE) via STATIC_DRIVER=_cs8900a.
 #
 # --- BBS_SERIAL=1 only: magnetar-serial.c64 ---------------------------------------
 # No Contiki TCP/uIP on the C64. SwiftLink raw serial; host runs telnet/TCP bridge.
-# Outbound/post sizes use bbs-defs.h defaults (same as RR-Net: BBS_BUFFER_SIZE 1267,
-# BBS_POST_BUFFER_SIZE 1500); do not override BBS_BUFFER_SIZE here or banners/prompts
-# truncate when the ring fills.
 #
 ifeq ($(strip $(BBS_SERIAL)),1)
 CONTIKI_PROJECT := magnetar-serial
-CONTIKI_WITH_IPV4 := 1
+SKIP_CONTIKI_MAIN := 1
+CONTIKI_WITH_IPV4 := 0
 CONTIKI_WITH_IPV6 := 0
 CONTIKI_WITH_RIME := 0
 CONTIKI_WITH_RPL := 0
 BBS_HEADLESS := 1
+CONTIKI_BBS_MINIMAL := 1
 DEFINES := WITH_LOGGING,TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,STATIC_DRIVER=c64_swlink_ser
 CFLAGS += -DCONNECTIONS=1 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=128 -DUIP_CONF_TCP_MSS=64
 else
-# Default program name; links full IPv4 + uIP + tcpip (RR-Net style deployment).
 CONTIKI_PROJECT := contiki-bbs
+CONTIKI_NET_MINIMAL := 1
+BBS_HEADLESS := 1
+CONTIKI_BBS_MINIMAL := 1
 endif
-# Autostart entry: contiki-bbs.c pulls contiki-net (TCP only); magnetar-serial.c is serial-only.
-# Each file #errors if BBS_SERIAL_TRANSPORT does not match; shared code stays ifdef-clean.
 
 all: $(CONTIKI_PROJECT)
 
 TARGET = c64
 
-#PROJECTDIRS = ../.. $(CONTIKI)/apps/telnetd
-
-# bbs-wrap.c: word-break + backward scan (shared by bbs-file / bbs-telnetd in a later step)
 PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-read.c bbs-post.c bbs-setboard.c bbs-telnetd.c bbs-encodings.c
 
 ifneq ($(strip $(BBS_SERIAL)),1)
-# UIP_CONF_LOGGING=0: silence uIP UIP_LOG() (e.g. "neither tcp nor icmp" on IGMP etc.);
-# keeps LOG_CONF_ENABLED / log_message from WITH_LOGGING without logscr per stray IP.
-DEFINES = WITH_LOGGING,TELNETD_CONF_REJECT,UIP_CONF_LOGGING=0
-# CONNECTIONS>=2 required: one slot for primary session + one transient slot so a
-# second SYN can establish; telnetd_appcall then sends telnetd_reject_text and closes.
-CFLAGS += -DCONNECTIONS=2 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=606 -DUIP_CONF_TCP_MSS=536
+DEFINES = WITH_LOGGING,TELNETD_CONF_REJECT,UIP_CONF_LOGGING=0,MAGNETAR_BBS,MAGNETAR_STATIC_NETCFG,STATIC_DRIVER=cs8900a
+CFLAGS += -DCONNECTIONS=2 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=606 -DUIP_CONF_TCP_MSS=536 -DUIP_CONF_ARPTAB_SIZE=2 -DUIP_CONF_ICMP=0 -DUIP_CONF_STATISTICS=0
+PROJECT_SOURCEFILES += magnetar-netcfg.c
 CONTIKI_WITH_IPV4  = 1
 CONTIKI_WITH_IPV6  = 0
 CONTIKI_WITH_RIME  = 0
@@ -52,11 +45,41 @@ endif
 
 CFLAGS += --static-locals
 
+# contiki-main.c includes magnetar-netcfg.h when MAGNETAR_STATIC_NETCFG is set.
+ifneq ($(strip $(BBS_SERIAL)),1)
+CFLAGS += -I.
+endif
+
 include $(CONTIKI)/Makefile.include
 
-# Serial-only link: drop uIP/TCP/Ethernet sources from the library set (after MODULES).
+ifeq ($(strip $(BBS_HEADLESS)),1)
+CONTIKI_HEADLESS_FILTER := \
+	ctk.c ctk-conio.c ctk-filedialog.c ctk-textentry-checkbox.c \
+	ctk-textentry-cmdline.c ctk-textentry-multiline.c ctk-mouse.c \
+	petsciiconv.c cfs-posix-dir.c exec.c \
+	pfs.S pfs-dir.c pfs-dir-asm.S pfs_remove.S pfs_seek.S pfs_write.S \
+	slip.c slip_arch.c lan91c96.S w5100.S
+ifeq ($(findstring STATIC_DRIVER,$(DEFINES)),)
+CONTIKI_HEADLESS_FILTER += cs8900a.S
+endif
+CONTIKI_SOURCEFILES := $(filter-out $(CONTIKI_HEADLESS_FILTER),$(CONTIKI_SOURCEFILES))
+ifneq ($(findstring STATIC_DRIVER,$(DEFINES)),)
+# STATIC_DRIVER: link cs8900a into the main binary (no cs8900a.eth on disk).
+CONTIKI_SOURCEFILES += cs8900a.S
+endif
+CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFILES)}}
+endif
+
 ifeq ($(strip $(BBS_SERIAL)),1)
-CONTIKI_SOURCEFILES := $(filter-out contiki-main.c config.c slip_arch.c uip_arch.c ethernet-drv.c ethernet.c cs8900a.S lan91c96.S w5100.S slip.c,$(CONTIKI_SOURCEFILES))
+CONTIKI_SOURCEFILES := $(filter-out config.c,$(CONTIKI_SOURCEFILES))
+CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFILES)}}
 cs8900a.eth lan91c96.eth w5100.eth:
 	@:
+else
+CONTIKI_SOURCEFILES := $(filter-out config.c,$(CONTIKI_SOURCEFILES))
+CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFILES)}}
+CC65_LIB = $(patsubst %/target,%/lib,$(shell $(CC) --print-target-path))/$(TARGET).lib
+%.eth: $(OBJECTDIR)/%.o
+	@echo "  LD       " $@
+	$(Q)$(LD) -o $@ -t module -m $@.map $< $(CC65_LIB)
 endif

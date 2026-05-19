@@ -136,52 +136,87 @@ void set_prompt(void)
 	}
 }
 /*---------------------------------------------------------------------------*/
+static unsigned char bbs_disk_loaded;
+
+static void
+bbs_load_disk_config(void)
+{
+  int f;
+  int n;
+  char file[25];
+  unsigned char i;
+
+  if(bbs_disk_loaded != 0u) {
+    return;
+  }
+  bbs_disk_loaded = 1u;
+
+  bbs_path_sys_colon(file, BBS_CFG_FILE);
+  f = cfs_open(file, CFS_READ);
+  if(f >= 0) {
+    n = cfs_read(f, &bbs_config, (int)sizeof(bbs_config));
+    cfs_close(f);
+    if(n > 0) {
+      log_message("\x99", "config loaded from file");
+    } else {
+      log_message("\x96", "config file not found, using defaults");
+      for(i = 0; i <= board.max_boards; ++i) {
+        bbs_config.msg_id[i] = 0;
+      }
+    }
+  } else {
+    log_message("\x96", "config file not found, using defaults");
+    for(i = 0; i <= board.max_boards; ++i) {
+      bbs_config.msg_id[i] = 0;
+    }
+  }
+
+  bbs_path_sys_colon(file, BBS_STATS_FILE);
+  f = cfs_open(file, CFS_READ);
+  if(f >= 0) {
+    n = cfs_read(f, &bbs_sysstats, (int)sizeof(bbs_sysstats));
+    cfs_close(f);
+    if(n > 0) {
+      log_message("\x99", "stats loaded from file");
+    } else {
+      log_message("\x96", "stats file not found, using defaults");
+      bbs_sysstats.caller_ptr = 0;
+      bbs_sysstats.total_calls = 0;
+      bbs_sysstats.total_msgs = 0;
+      bbs_sysstats.day_ptr = 0;
+    }
+  } else {
+    log_message("\x96", "stats file not found, using defaults");
+    bbs_sysstats.caller_ptr = 0;
+    bbs_sysstats.total_calls = 0;
+    bbs_sysstats.total_msgs = 0;
+    bbs_sysstats.day_ptr = 0;
+  }
+}
+/*---------------------------------------------------------------------------*/
 static void bbs_init(void) 
 {
-  //unsigned char *buffer;
-  unsigned short fsize=0;
-  unsigned short siRet=0;
   unsigned long set_time;
-  unsigned char file[25];
   unsigned char i;
-  //unsigned char message[40];
 
-  cbm_open(4, 4, 7, "");
-/*
-  sprintf(file, "//x/:%s", BBS_CFG_FILE);
-
-  cbm_open(10, 8, 10, file);
-  cbm_read(10, &board, 2);
-  fsize = cbm_read(10, &board, sizeof(board));
-  cbm_close(10);
-  
-  if (fsize > 0) {
-    log_message("\x99", "setup loaded from file");
-  }
-  else{
-
-    log_message("\x96", "setup file not found, using defaults");
-*/
 	sprintf(board.board_name, "\n\r     CENTRONIAN BBS\n\r");
 	board.telnet_port = 6400;
 	board.max_boards = 8;
 
-	board.subs_device = 8;
+	board.subs_device = 9;
 	sprintf(board.subs_prefix, "//s/");
 
-	board.sys_device = 8;
+	board.sys_device = 9;
 	sprintf(board.sys_prefix, "//x/");
 
-	board.user_device = 8;
+	board.user_device = 9;
 	sprintf(board.user_prefix, "//u/u/");
 
-	board.userstats_device = 8;
+	board.userstats_device = 9;
 	sprintf(board.userstats_prefix, "//u/s/");
 
-	board.media_device = 8;
+	board.media_device = 9;
 	sprintf(board.media_prefix, "//m/");
-
-	/* read BBS base configuration */
 
 	sprintf(board.sub_names[0], "the blackhole");
 	sprintf(board.sub_names[1], "the lounge     ");
@@ -194,10 +229,6 @@ static void bbs_init(void)
 	sprintf(board.sub_names[8], "member intros  ");
 
 	board.dir_boost=1;
-//  }
-
-
-
 
   bbs_time.minute=0;
   bbs_time.hour=0;
@@ -208,72 +239,16 @@ static void bbs_init(void)
   set_time = (unsigned long)bbs_time.minute*60 + (unsigned long)bbs_time.hour*3600;
 
   clock_offset =  set_time - clock_seconds();
-  //sprintf(message, "set:%li clock:%li offset:%li", set_time, clock_seconds(), clock_offset);
-  //log_message("time ", message);
 
-
-  /* read BBS base configuration */
-  //fsize=bbs_filesize(board.sys_prefix, BBS_CFG_FILE, board.sys_device);
-
-  //fsize = load_struct(&bbs_config, board.sys_prefix, BBS_CFG_FILE, board.sys_device);
-  
-  
-  bbs_path_sys_colon((char *)file, BBS_CFG_FILE);
-
-  cbm_open(10, board.sys_device, 10, file);
-  cbm_read(10, &bbs_config, 2);
-  fsize = cbm_read(10, &bbs_config, sizeof(bbs_config));
-  cbm_close(10);
-  
-  if (fsize > 0) {
-    log_message("\x99", "config loaded from file");
+  for(i = 0; i <= board.max_boards; ++i) {
+    bbs_config.msg_id[i] = 0;
   }
-  else{
-
-    log_message("\x96", "config file not found, using defaults");
-    /* set sub msg counts */
-    /*bbs_config.msg_id[0]=0;
-    bbs_config.msg_id[1]=1611;
-    bbs_config.msg_id[2]=140;
-    bbs_config.msg_id[3]=117;
-    bbs_config.msg_id[4]=536;
-    bbs_config.msg_id[5]=370;
-    bbs_config.msg_id[6]=139;
-    bbs_config.msg_id[7]=160;
-    bbs_config.msg_id[8]=29;
-	*/
-    for (i=0; i<=board.max_boards; i++) {
-      bbs_config.msg_id[i]=0;
-    }
-  }
-
-
-  /* read BBS stats file */
-  bbs_path_sys_colon((char *)file, BBS_STATS_FILE);
-
-  cbm_open(10, board.sys_device, 10, file);
-  cbm_read(10, &bbs_sysstats, 2);
-
-  fsize = cbm_read(10, &bbs_sysstats, sizeof(bbs_sysstats));
-  cbm_close(10);
-
-  if (fsize > 0) {
-    log_message("\x99", "stats loaded from file");
-  }
-  else{
-    log_message("\x96", "stats file not found, using defaults");
-	//bbs_sysstats.last_callers[12][BBS_STATS_USRS];
-	bbs_sysstats.caller_ptr=0;
-	bbs_sysstats.total_calls=0;
-	bbs_sysstats.total_msgs=0;
-	//bbs_sysstats.daily_calls[BBS_STATS_DAYS];
-	//bbs_sysstats.daily_msgs[BBS_STATS_DAYS];
-	bbs_sysstats.day_ptr=0;
-  }
+  bbs_sysstats.caller_ptr = 0;
+  bbs_sysstats.total_calls = 0;
+  bbs_sysstats.total_msgs = 0;
+  bbs_sysstats.day_ptr = 0;
 
   bbs_defaults();
-  //set_prompt();
-  
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -1545,14 +1520,31 @@ shell_init(void)
   bbs_post_init();
 
   shell_event_input = process_alloc_event();
-  
+
+  bbs_status.status=STATUS_UNLOCK;
+}
+/*---------------------------------------------------------------------------*/
+void
+shell_start_processes(void)
+{
   process_start(&bbs_login_process, NULL);
   process_start(&shell_process, NULL);
   process_start(&shell_server_process, NULL);
-
   front_process = &bbs_login_process;
+}
+/*---------------------------------------------------------------------------*/
+void
+magnetar_bbs_after_autostart(void)
+{
+  unsigned char i;
 
-  bbs_status.status=STATUS_UNLOCK;
+  shell_start_processes();
+  for(i = 0; i < 16u; ++i) {
+    if(process_run() == 0 && process_nevents() == 0) {
+      break;
+    }
+    etimer_request_poll();
+  }
 }
 /*---------------------------------------------------------------------------*/
 static int
@@ -1586,6 +1578,7 @@ shell_start_after_probe(void)
 void
 shell_start(void)
 {
+  bbs_load_disk_config();
   if(!bbs_try_lock_for_session()) {
     return;
   }

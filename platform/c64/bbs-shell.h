@@ -111,6 +111,9 @@ void set_prompt(void);
  */
 void shell_init(void);
 
+void shell_start_processes(void);
+void magnetar_bbs_after_autostart(void);
+
 /**
  * \brief      Start the shell.
  *
