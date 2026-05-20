@@ -149,19 +149,19 @@ static void bbs_init(void)
 	board.telnet_port = 6400;
 	board.max_boards = 8;
 
-	board.subs_device = 8;
+	board.subs_device = 9;
 	sprintf(board.subs_prefix, "//s/");
 
-	board.sys_device = 8;
+	board.sys_device = 9;
 	sprintf(board.sys_prefix, "//x/");
 
-	board.user_device = 8;
+	board.user_device = 9;
 	sprintf(board.user_prefix, "//u/u/");
 
-	board.userstats_device = 8;
+	board.userstats_device = 9;
 	sprintf(board.userstats_prefix, "//u/s/");
 
-	board.media_device = 8;
+	board.media_device = 9;
 	sprintf(board.media_prefix, "//m/");
 
 	/* read BBS base configuration */
@@ -1016,13 +1016,9 @@ PROCESS_THREAD(movie_process, ev, data)
 
 	PROCESS_PAUSE();
 
-	//shell_output_str(NULL, "the end\n\r", "");
-  //shell_output_str(NULL, "hit return to stop stream once playing\n\r", "");
-
+	/* Refresh prompt text; shell_process shows it once on PROCESS_EVENT_EXITED. */
 	set_prompt();
-	shell_prompt(bbs_status.prompt);
 
-	//PROCESS_EXIT();
 	PROCESS_END();
 
 }
