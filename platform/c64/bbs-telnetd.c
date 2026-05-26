@@ -48,6 +48,9 @@
 #include "bbs-defs.h"
 #include "bbs-wrap.h"
 #include "bbs-telnetd.h"
+#ifdef BBS_SERIAL_TRANSPORT
+#include "bbs-transfer.h"
+#endif
 
 extern BBS_BOARD_REC board;
 extern BBS_STATUS_REC bbs_status;
@@ -424,6 +427,20 @@ bbs_transport_stream_clear_sent(void)
 {
   s.numsent = 0u;
 }
+
+#ifdef BBS_SERIAL_TRANSPORT
+static void telnetd_serial_poll_io(void);
+#endif
+
+void
+bbs_transport_poll(void)
+{
+#ifdef BBS_SERIAL_TRANSPORT
+  telnetd_serial_poll_io();
+#else
+  process_run();
+#endif
+}
 /*---------------------------------------------------------------------------*/
 void
 shell_prompt(char *str)
@@ -675,7 +692,8 @@ telnetd_serial_poll_io(void)
     /* While a banner file is in the outbound path, drop RX (same as TCP: no input
      * during bulk send). Movies use STATUS_STREAM — keep accepting Return to stop. */
     if(serial_banner_depth > 0u && buf.used != 0u
-       && bbs_status.status != STATUS_STREAM) {
+       && bbs_status.status != STATUS_STREAM
+       && bbs_status.status != STATUS_XFER) {
       continue;
     }
     if(serial_waiting_peer != 0u) {
@@ -983,6 +1001,16 @@ static void
 telnetd_feed(const unsigned char *ptr, unsigned int len)
 {
   unsigned char c;
+
+#ifdef BBS_SERIAL_TRANSPORT
+  if(bbs_status.status == STATUS_XFER) {
+    while(len > 0u) {
+      bbs_xfer_feed(*ptr++);
+      --len;
+    }
+    return;
+  }
+#endif
 
   /* Cheap hard stop: if this chunk cannot fit in the current input line,
      close instead of partially parsing browser/HTTP garbage. */

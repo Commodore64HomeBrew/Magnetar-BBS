@@ -105,6 +105,14 @@
 #define STATUS_POST	8
 #define STATUS_READ	9
 #define STATUS_STREAM  10
+#define STATUS_XFER    11
+
+/* File transfer area (under board.transfer_prefix). */
+#define BBS_XFER_MAX_FILES  4
+#define BBS_XFER_NAME_LEN   17
+#define BBS_XFER_PATH_LEN   28
+#define BBS_XFER_BLOCK      128
+#define BBS_XFER_RBUF       132
 
 
 
@@ -149,6 +157,8 @@ typedef struct {
   unsigned char userstats_prefix[10];
   unsigned char media_device;
   unsigned char media_prefix[10];
+  unsigned char transfer_device;
+  unsigned char transfer_prefix[10];
   unsigned char sub_names[9][20];
   unsigned char dir_boost; 
 } BBS_BOARD_REC;

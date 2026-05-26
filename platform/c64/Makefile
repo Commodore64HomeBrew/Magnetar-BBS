@@ -8,6 +8,7 @@ endif
 #
 # --- BBS_SERIAL=1 only: magnetar-serial.c64 ---------------------------------------
 # No Contiki TCP/uIP on the C64. SwiftLink raw serial; host runs telnet/TCP bridge.
+# File transfer (XMODEM) is serial-only.
 #
 ifeq ($(strip $(BBS_SERIAL)),1)
 CONTIKI_PROJECT := magnetar-serial
@@ -20,18 +21,18 @@ BBS_HEADLESS := 1
 CONTIKI_BBS_MINIMAL := 1
 DEFINES := WITH_LOGGING,TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,STATIC_DRIVER=c64_swlink_ser
 CFLAGS += -DCONNECTIONS=1 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=128 -DUIP_CONF_TCP_MSS=64
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-read.c bbs-post.c bbs-setboard.c bbs-telnetd.c bbs-encodings.c bbs-transfer.c bbs-xmodem.S
 else
 CONTIKI_PROJECT := contiki-bbs
 CONTIKI_NET_MINIMAL := 1
 BBS_HEADLESS := 1
 CONTIKI_BBS_MINIMAL := 1
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-read.c bbs-post.c bbs-setboard.c bbs-telnetd.c bbs-encodings.c
 endif
 
 all: $(CONTIKI_PROJECT)
 
 TARGET = c64
-
-PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-read.c bbs-post.c bbs-setboard.c bbs-telnetd.c bbs-encodings.c
 
 ifneq ($(strip $(BBS_SERIAL)),1)
 # WITH_PFS: contiki.cfg and //x/ BBS paths via cfs_open (not cbm_* during boot).
@@ -46,6 +47,13 @@ endif
 CFLAGS += --static-locals
 
 include $(CONTIKI)/Makefile.include
+
+ifeq ($(strip $(BBS_SERIAL)),1)
+# --static-locals blows up bbs_xfer_process protothread state (~3k BSS).
+$(OBJECTDIR)/bbs-transfer.o: bbs-transfer.c
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -o $@ $<
+endif
 
 ifeq ($(strip $(BBS_HEADLESS)),1)
 CONTIKI_HEADLESS_FILTER := \

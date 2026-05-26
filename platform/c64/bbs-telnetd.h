@@ -60,6 +60,7 @@ void telnetd_quit(void);
 #endif
 /* TCP: schedule uip poll; serial: no-op. */
 void telnetd_kick_disconnect(void);
+void bbs_transport_poll(void);
 #ifdef BBS_SERIAL_TRANSPORT
 /* Push outbound ring toward UART so bulk cbm_read into buf isn't capped prematurely. */
 void bbs_serial_drain_wire(void);

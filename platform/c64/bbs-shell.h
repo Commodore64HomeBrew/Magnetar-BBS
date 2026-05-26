@@ -399,6 +399,9 @@ struct shell_input {
 #include "bbs-read.h"
 #include "bbs-setboard.h"
 #include "bbs-post.h"
+#ifdef BBS_SERIAL_TRANSPORT
+#include "bbs-transfer.h"
+#endif
 
 /*extern BBS_STATUS_REC bbs_status;*/
 

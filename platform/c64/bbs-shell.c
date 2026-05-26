@@ -164,6 +164,9 @@ static void bbs_init(void)
 	board.media_device = 9;
 	sprintf(board.media_prefix, "//m/");
 
+	board.transfer_device = 9;
+	sprintf(board.transfer_prefix, "//t/");
+	
 	/* read BBS base configuration */
 
 	sprintf(board.sub_names[0], "the blackhole");
@@ -1213,7 +1216,15 @@ start_command(char *commandline, struct shell_command *child)
     c->child = child;
     /*    printf("shell: start_command starting '%s'\n", c->process->name);*/
     /* Start a new process for the command. */
-    process_start(c->process, args);
+#ifdef BBS_SERIAL_TRANSPORT
+    if(c->process == &bbs_xfer_process) {
+      bbs_xfer_set_op(commandline);
+      process_start(c->process, NULL);
+    } else
+#endif
+    {
+      process_start(c->process, args);
+    }
   }
   
   return c;
@@ -1481,6 +1492,9 @@ shell_init(void)
   bbs_setboard_init();
   bbs_read_init();
   bbs_post_init();
+#ifdef BBS_SERIAL_TRANSPORT
+  bbs_xfer_init();
+#endif
 
   shell_event_input = process_alloc_event();
 
