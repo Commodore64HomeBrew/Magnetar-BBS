@@ -57,27 +57,25 @@ static unsigned char bbs_cmdmod_active;
 static unsigned char bbs_cmdmod_dynamic;
 static void *bbs_cmdmod_image;
 static bbs_module_iface_t *bbs_cmdmod_iface;
-static const bbs_module_ctx_t bbs_module_ctx = {
-  &board,
-  &bbs_status,
-  &buf,
-  0,
-  shell_output_str,
-  shell_prompt,
-  shell_register_command,
-  shell_unregister_command,
-  bbs_transport_poll,
+static unsigned char bbs_module_msg_init_ctx(void);
+static void bbs_module_msg_deinit_ctx(void);
+static unsigned char bbs_module_xfer_init_ctx(void);
+static void bbs_module_xfer_deinit_ctx(void);
 #ifdef BBS_SERIAL_TRANSPORT
-  bbs_serial_flush_outbound
-#else
-  NULL
+static unsigned char bbs_xfer_prepare_command(const char *cmd);
+#endif
+static const bbs_module_ctx_t bbs_module_ctx = {
+  bbs_module_msg_init_ctx,
+  bbs_module_msg_deinit_ctx,
+  bbs_module_xfer_init_ctx,
+  bbs_module_xfer_deinit_ctx
+#ifdef BBS_SERIAL_TRANSPORT
+  , bbs_xfer_set_op
 #endif
 };
 
 static void bbs_module_msg_init(void);
-#ifdef BBS_SERIAL_TRANSPORT
 static void bbs_module_msg_deinit(void);
-#endif
 static unsigned char bbs_module_try_load(unsigned char module_id);
 static void bbs_module_unload_dynamic(void);
 static unsigned char bbs_command_targets_msg_module(const char *cmd, int len);
@@ -138,7 +136,6 @@ bbs_module_msg_init(void)
   bbs_post_init();
 }
 
-#ifdef BBS_SERIAL_TRANSPORT
 static void
 bbs_module_msg_deinit(void)
 {
@@ -150,7 +147,37 @@ bbs_module_msg_deinit(void)
   shell_unregister_command(&usr_stats_command);
   shell_unregister_command(&sys_stats_command);
 }
+
+static unsigned char
+bbs_module_msg_init_ctx(void)
+{
+  bbs_module_msg_init();
+  return 1u;
+}
+
+static void
+bbs_module_msg_deinit_ctx(void)
+{
+  bbs_module_msg_deinit();
+}
+
+static unsigned char
+bbs_module_xfer_init_ctx(void)
+{
+#ifdef BBS_SERIAL_TRANSPORT
+  return bbs_xfer_init();
+#else
+  return 0u;
 #endif
+}
+
+static void
+bbs_module_xfer_deinit_ctx(void)
+{
+#ifdef BBS_SERIAL_TRANSPORT
+  bbs_xfer_deinit();
+#endif
+}
 
 /*---------------------------------------------------------------------------*/
 void bbs_defaults(void)
@@ -1260,7 +1287,12 @@ bbs_module_try_load(unsigned char module_id)
     }
     return 0u;
   }
-
+#ifdef BBS_SERIAL_TRANSPORT
+  if(module_id == BBS_MODULE_ID_XFER && iface->set_op == NULL) {
+    mod_free(ctrl.module);
+    return 0u;
+  }
+#endif
   bbs_cmdmod_image = ctrl.module;
   bbs_cmdmod_iface = iface;
   bbs_cmdmod_dynamic = 1u;
@@ -1367,7 +1399,9 @@ bbs_modules_activate_xfer(void)
     bbs_module_msg_deinit();
   }
   if(bbs_module_try_load(BBS_MODULE_ID_XFER) == 0u) {
-    bbs_xfer_init();
+    if(bbs_xfer_init() == 0u) {
+      return 0u;
+    }
   }
   bbs_cmdmod_active = BBS_CMDMOD_XFER;
   return 1u;
@@ -1416,6 +1450,20 @@ bbs_modules_route_command(const char *cmd, int len)
 
   return 1u;
 }
+
+#ifdef BBS_SERIAL_TRANSPORT
+static unsigned char
+bbs_xfer_prepare_command(const char *cmd)
+{
+  if(bbs_cmdmod_dynamic != 0u && bbs_cmdmod_iface != NULL &&
+      bbs_cmdmod_iface->set_op != NULL) {
+    bbs_cmdmod_iface->set_op(cmd);
+    return 1u;
+  }
+  bbs_xfer_set_op(cmd);
+  return 1u;
+}
+#endif
 
 /*---------------------------------------------------------------------------*/
 static struct shell_command *
@@ -1486,14 +1534,18 @@ start_command(char *commandline, struct shell_command *child)
     /*    printf("shell: start_command starting '%s'\n", c->process->name);*/
     /* Start a new process for the command. */
 #ifdef BBS_SERIAL_TRANSPORT
-    if(c->process == &bbs_xfer_process) {
-      bbs_xfer_set_op(commandline);
+    if(bbs_command_targets_xfer_module(commandline, command_len) != 0u) {
+      if(bbs_xfer_prepare_command(commandline) == 0u) {
+        command_kill(child);
+        return NULL;
+      }
       process_start(c->process, NULL);
-    } else
-#endif
-    {
+    } else {
       process_start(c->process, args);
     }
+#else
+    process_start(c->process, args);
+#endif
   }
   
   return c;

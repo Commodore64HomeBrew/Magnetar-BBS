@@ -34,6 +34,9 @@ all: $(CONTIKI_PROJECT)
 
 modules: bbs-msg.mod bbs-xfer.mod
 
+$(OBJECTDIR):
+	@mkdir -p "$@"
+
 TARGET = c64
 
 ifneq ($(strip $(BBS_SERIAL)),1)
@@ -95,11 +98,11 @@ endif
 
 CC65_LIB = $(patsubst %/target,%/lib,$(shell $(CC) --print-target-path))/$(TARGET).lib
 
-$(OBJECTDIR)/bbs-msg-module.o: bbs-msg-module.c
+$(OBJECTDIR)/bbs-msg-module.o: bbs-msg-module.c | $(OBJECTDIR)
 	@echo "  CC        $<"
 	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -o $@ $<
 
-$(OBJECTDIR)/bbs-xfer-module.o: bbs-xfer-module.c
+$(OBJECTDIR)/bbs-xfer-module.o: bbs-xfer-module.c | $(OBJECTDIR)
 	@echo "  CC        $<"
 	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -o $@ $<
 

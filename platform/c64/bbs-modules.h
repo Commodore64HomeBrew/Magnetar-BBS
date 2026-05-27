@@ -7,16 +7,13 @@
 struct shell_command;
 
 typedef struct bbs_module_ctx {
-  void *board;
-  void *status;
-  void *buffer;
-  int shell_event_input;
-  void (*shell_output_str)(struct shell_command *c, char *str1, char *str2);
-  void (*shell_prompt)(char *prompt);
-  void (*shell_register_command)(struct shell_command *c);
-  void (*shell_unregister_command)(struct shell_command *c);
-  void (*transport_poll)(void);
-  void (*serial_flush_outbound)(void);
+  unsigned char (*msg_init)(void);
+  void (*msg_deinit)(void);
+  unsigned char (*xfer_init)(void);
+  void (*xfer_deinit)(void);
+#ifdef BBS_SERIAL_TRANSPORT
+  void (*xfer_set_op)(const char *cmd);
+#endif
 } bbs_module_ctx_t;
 
 /*
@@ -31,6 +28,10 @@ typedef struct bbs_module_iface {
   unsigned char module_id;
   char jmp_init;
   unsigned char (*init)(const bbs_module_ctx_t *ctx);
+#ifdef BBS_SERIAL_TRANSPORT
+  char jmp_set_op;
+  void (*set_op)(const char *cmd);
+#endif
   char jmp_deinit;
   void (*deinit)(void);
 } bbs_module_iface_t;
