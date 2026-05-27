@@ -1,33 +1,41 @@
 #include "bbs-modules.h"
-
-static const bbs_module_ctx_t *g_ctx;
+#ifdef BBS_XFER_MODULE
+#include "bbs-transfer.h"
+#endif
 
 static unsigned char
 bbs_xfer_module_init(const bbs_module_ctx_t *ctx)
 {
-  if(ctx == 0 || ctx->xfer_init == 0 || ctx->xfer_deinit == 0) {
+#ifdef BBS_XFER_MODULE
+  if(bbs_xfer_bind(ctx) == 0u) {
     return 0u;
   }
-  g_ctx = ctx;
-  return ctx->xfer_init();
+  return bbs_xfer_init();
+#else
+  (void)ctx;
+  return 0u;
+#endif
 }
 
 static void
 bbs_xfer_module_deinit(void)
 {
-  if(g_ctx != 0 && g_ctx->xfer_deinit != 0) {
-    g_ctx->xfer_deinit();
-  }
-  g_ctx = 0;
+#ifdef BBS_XFER_MODULE
+  bbs_xfer_deinit();
+#endif
 }
 
-#ifdef BBS_SERIAL_TRANSPORT
+#ifdef BBS_XFER_MODULE
 static void
 bbs_xfer_module_set_op(const char *cmd)
 {
-  if(g_ctx != 0 && g_ctx->xfer_set_op != 0) {
-    g_ctx->xfer_set_op(cmd);
-  }
+  bbs_xfer_set_op(cmd);
+}
+
+static void
+bbs_xfer_module_feed(unsigned char c)
+{
+  bbs_xfer_feed(c);
 }
 #endif
 
@@ -38,8 +46,17 @@ const bbs_module_iface_t bbs_xfer_module_iface = {
   0,
   bbs_xfer_module_init,
 #ifdef BBS_SERIAL_TRANSPORT
+#ifdef BBS_XFER_MODULE
   0,
   bbs_xfer_module_set_op,
+  0,
+  bbs_xfer_module_feed,
+#else
+  0,
+  0,
+  0,
+  0,
+#endif
 #endif
   0,
   bbs_xfer_module_deinit

@@ -1,20 +1,43 @@
 #include "bbs-modules.h"
+#include "bbs-read.h"
+#include "bbs-post.h"
+#include "bbs-setboard.h"
+#include "bbs-msg-bind.h"
 
 static const bbs_module_ctx_t *g_ctx;
 
 static unsigned char
 bbs_msg_module_init(const bbs_module_ctx_t *ctx)
 {
+#ifdef BBS_MSG_MODULE
+  if(bbs_msg_bind(ctx) == 0u) {
+    return 0u;
+  }
+#endif
   if(ctx == 0 || ctx->msg_init == 0 || ctx->msg_deinit == 0) {
     return 0u;
   }
   g_ctx = ctx;
-  return ctx->msg_init();
+  if(ctx->msg_init() == 0u) {
+    g_ctx = 0;
+    return 0u;
+  }
+#ifdef BBS_MSG_MODULE
+  bbs_setboard_init();
+  bbs_read_init();
+  bbs_post_init();
+#endif
+  return 1u;
 }
 
 static void
 bbs_msg_module_deinit(void)
 {
+#ifdef BBS_MSG_MODULE
+  bbs_post_deinit();
+  bbs_read_deinit();
+  bbs_setboard_deinit();
+#endif
   if(g_ctx != 0 && g_ctx->msg_deinit != 0) {
     g_ctx->msg_deinit();
   }
@@ -28,6 +51,8 @@ const bbs_module_iface_t bbs_msg_module_iface = {
   0,
   bbs_msg_module_init,
 #ifdef BBS_SERIAL_TRANSPORT
+  0,
+  0,
   0,
   0,
 #endif

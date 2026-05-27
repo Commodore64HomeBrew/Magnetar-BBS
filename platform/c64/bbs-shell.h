@@ -139,6 +139,7 @@ void shell_start_after_probe(void);
  *
  */
 void shell_input(char *commandline, int commandline_len);
+void bbs_module_xfer_feed(unsigned char c);
 
 /**
  * \brief      Stop the shell
@@ -399,10 +400,6 @@ struct shell_input {
 #include "bbs-read.h"
 #include "bbs-setboard.h"
 #include "bbs-post.h"
-#ifdef BBS_SERIAL_TRANSPORT
-#include "bbs-transfer.h"
-#endif
-
 /*extern BBS_STATUS_REC bbs_status;*/
 
 #endif /* __SHELL_H__ */

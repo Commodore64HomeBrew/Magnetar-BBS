@@ -6,15 +6,49 @@
 #include "bbs-transfer.h"
 #include "bbs-xmodem.h"
 #include "bbs-telnetd.h"
+#ifdef BBS_XFER_MODULE
+#include "bbs-modules.h"
+#endif
 #include <cbm.h>
 #ifdef BBS_SERIAL_TRANSPORT
 #include <serial.h>
 #endif
+#ifndef BBS_XFER_MODULE
 #include <stdlib.h>
+#endif
 #include <string.h>
 
+#ifndef BBS_XFER_MODULE
 extern BBS_BOARD_REC board;
 extern BBS_STATUS_REC bbs_status;
+extern BBS_BUFFER buf;
+#else
+static BBS_BOARD_REC *xfer_board;
+static BBS_STATUS_REC *xfer_status;
+static BBS_BUFFER *xfer_buf;
+static int *xfer_shell_event_inputp;
+static void (*xfer_shell_output_str)(struct shell_command *c, char *str1, char *str2);
+static void (*xfer_shell_prompt)(char *prompt);
+static void (*xfer_shell_register_command)(struct shell_command *c);
+static void (*xfer_shell_unregister_command)(struct shell_command *c);
+static void (*xfer_transport_poll)(void);
+static int (*xfer_buf_append)(const char *data, int len);
+static unsigned long (*xfer_clock_time)(void);
+static void (*xfer_serial_flush_outbound)(void);
+
+#define board (*xfer_board)
+#define bbs_status (*xfer_status)
+#define buf (*xfer_buf)
+#define shell_event_input (*xfer_shell_event_inputp)
+#define shell_output_str xfer_shell_output_str
+#define shell_prompt xfer_shell_prompt
+#define shell_register_command xfer_shell_register_command
+#define shell_unregister_command xfer_shell_unregister_command
+#define bbs_transport_poll xfer_transport_poll
+#define buf_append xfer_buf_append
+#define clock_time xfer_clock_time
+#define bbs_serial_flush_outbound xfer_serial_flush_outbound
+#endif
 
 #define XFER_CHN  2u
 #define XFER_CMD  15u
@@ -40,7 +74,6 @@ typedef struct bbs_xfer_state {
 } bbs_xfer_state_t;
 static bbs_xfer_state_t *xfer;
 unsigned char bbs_xmodem_inbyte;
-extern BBS_BUFFER buf;
 
 static unsigned short xfer_atou(const char *s)
 {
@@ -51,6 +84,34 @@ static unsigned short xfer_atou(const char *s)
   }
   return v;
 }
+
+#ifdef BBS_XFER_MODULE
+unsigned char
+bbs_xfer_bind(const bbs_module_ctx_t *ctx)
+{
+  if(ctx == NULL || ctx->bbsm_board == NULL || ctx->bbsm_status == NULL ||
+      ctx->bbsm_buffer == NULL || ctx->bbsm_shell_event_input == NULL ||
+      ctx->bbsm_shell_output_str == NULL ||
+      ctx->bbsm_shell_prompt == NULL || ctx->bbsm_shell_register_command == NULL ||
+      ctx->bbsm_shell_unregister_command == NULL || ctx->bbsm_transport_poll == NULL ||
+      ctx->bbsm_buf_append == NULL || ctx->bbsm_clock_time == NULL) {
+    return 0u;
+  }
+  xfer_board = (BBS_BOARD_REC *)ctx->bbsm_board;
+  xfer_status = (BBS_STATUS_REC *)ctx->bbsm_status;
+  xfer_buf = (BBS_BUFFER *)ctx->bbsm_buffer;
+  xfer_shell_event_inputp = ctx->bbsm_shell_event_input;
+  xfer_shell_output_str = ctx->bbsm_shell_output_str;
+  xfer_shell_prompt = ctx->bbsm_shell_prompt;
+  xfer_shell_register_command = ctx->bbsm_shell_register_command;
+  xfer_shell_unregister_command = ctx->bbsm_shell_unregister_command;
+  xfer_transport_poll = ctx->bbsm_transport_poll;
+  xfer_buf_append = ctx->bbsm_buf_append;
+  xfer_clock_time = ctx->bbsm_clock_time;
+  xfer_serial_flush_outbound = ctx->bbsm_serial_flush_outbound;
+  return 1u;
+}
+#endif
 
 void bbs_xfer_set_op(const char *cmd)
 {
@@ -548,12 +609,17 @@ PROCESS_THREAD(bbs_xfer_process, ev, data)
 
 unsigned char bbs_xfer_init(void)
 {
+#ifdef BBS_XFER_MODULE
+  static bbs_xfer_state_t module_state;
+  xfer = &module_state;
+#else
   if(xfer == NULL) {
     xfer = (bbs_xfer_state_t *)malloc(sizeof(*xfer));
     if(xfer == NULL) {
       return 0u;
     }
   }
+#endif
   xfer->cwd[0] = 0;
   xfer->nfiles = 0u;
   xfer->op_line = NULL;
@@ -582,8 +648,10 @@ void bbs_xfer_deinit(void)
   shell_unregister_command(&bbs_xfer_ul_command);
   shell_unregister_command(&bbs_xfer_cd_command);
   shell_unregister_command(&bbs_xfer_md_command);
+#ifndef BBS_XFER_MODULE
   if(xfer != NULL) {
     free(xfer);
-    xfer = NULL;
   }
+#endif
+  xfer = NULL;
 }

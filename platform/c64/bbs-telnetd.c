@@ -48,9 +48,6 @@
 #include "bbs-defs.h"
 #include "bbs-wrap.h"
 #include "bbs-telnetd.h"
-#ifdef BBS_SERIAL_TRANSPORT
-#include "bbs-transfer.h"
-#endif
 
 extern BBS_BOARD_REC board;
 extern BBS_STATUS_REC bbs_status;
@@ -1002,15 +999,13 @@ telnetd_feed(const unsigned char *ptr, unsigned int len)
 {
   unsigned char c;
 
-#ifdef BBS_SERIAL_TRANSPORT
   if(bbs_status.status == STATUS_XFER) {
     while(len > 0u) {
-      bbs_xfer_feed(*ptr++);
+      bbs_module_xfer_feed(*ptr++);
       --len;
     }
     return;
   }
-#endif
 
   /* Cheap hard stop: if this chunk cannot fit in the current input line,
      close instead of partially parsing browser/HTTP garbage. */

@@ -11,15 +11,20 @@
 #include "bbs-read.h"
 #include "bbs-file.h"
 #include "bbs-telnetd.h"
+#ifdef BBS_MSG_MODULE
+#include "bbs-msg-bind.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef BBS_MSG_MODULE
 extern BBS_BOARD_REC board;
 extern BBS_CONFIG_REC bbs_config;
 extern BBS_STATUS_REC bbs_status;
 extern BBS_USER_STATS bbs_usrstats;
+#endif
 
 
 
@@ -90,7 +95,7 @@ PROCESS_THREAD(bbs_nextmsg_process, ev, data)
   unsigned short num;
 
   PROCESS_BEGIN();
-#ifdef BBS_SERIAL_TRANSPORT
+#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_MSG_MODULE)
   PROCESS_PAUSE();
 #endif
 
@@ -116,7 +121,7 @@ PROCESS_THREAD(bbs_prevmsg_process, ev, data)
   unsigned short num;
 
   PROCESS_BEGIN();
-#ifdef BBS_SERIAL_TRANSPORT
+#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_MSG_MODULE)
   PROCESS_PAUSE();
 #endif
 

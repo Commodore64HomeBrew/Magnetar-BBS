@@ -11,15 +11,20 @@
 #include "bbs-shell.h"
 
 #include "bbs-setboard.h"
+#ifdef BBS_MSG_MODULE
+#include "bbs-msg-bind.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef BBS_MSG_MODULE
 extern BBS_BOARD_REC board;
 extern BBS_CONFIG_REC bbs_config;
 extern BBS_STATUS_REC bbs_status;
 extern BBS_USER_STATS bbs_usrstats;
+#endif
 
 
 void bbs_sub_banner(void)
@@ -87,7 +92,7 @@ SHELL_COMMAND(bbs_nextboard_command, "+", "+ : next msg board", &bbs_nextboard_p
 PROCESS_THREAD(bbs_nextboard_process, ev, data)
 {
   PROCESS_BEGIN();
-#ifdef BBS_SERIAL_TRANSPORT
+#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_MSG_MODULE)
   PROCESS_PAUSE();
 #endif
 
@@ -111,7 +116,7 @@ SHELL_COMMAND(bbs_prevboard_command, "-", "- : previous msg board", &bbs_prevboa
 PROCESS_THREAD(bbs_prevboard_process, ev, data)
 {
   PROCESS_BEGIN();
-#ifdef BBS_SERIAL_TRANSPORT
+#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_MSG_MODULE)
   PROCESS_PAUSE();
 #endif
 
