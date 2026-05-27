@@ -32,6 +32,8 @@ endif
 
 all: $(CONTIKI_PROJECT)
 
+modules: bbs-msg.mod bbs-xfer.mod
+
 TARGET = c64
 
 ifneq ($(strip $(BBS_SERIAL)),1)
@@ -86,8 +88,25 @@ CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFI
 cs8900a.eth lan91c96.eth w5100.eth:
 	@:
 else
-CC65_LIB = $(patsubst %/target,%/lib,$(shell $(CC) --print-target-path))/$(TARGET).lib
 %.eth: $(OBJECTDIR)/%.o
 	@echo "  LD       " $@
 	$(Q)$(LD) -o $@ -t module -m $@.map $< $(CC65_LIB)
 endif
+
+CC65_LIB = $(patsubst %/target,%/lib,$(shell $(CC) --print-target-path))/$(TARGET).lib
+
+$(OBJECTDIR)/bbs-msg-module.o: bbs-msg-module.c
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -o $@ $<
+
+$(OBJECTDIR)/bbs-xfer-module.o: bbs-xfer-module.c
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -o $@ $<
+
+bbs-msg.mod: $(OBJECTDIR)/bbs-msg-module.o
+	@echo "  LD       " $@
+	$(Q)$(LD) -o $@ -t module -m $@.map $< $(CC65_LIB)
+
+bbs-xfer.mod: $(OBJECTDIR)/bbs-xfer-module.o
+	@echo "  LD       " $@
+	$(Q)$(LD) -o $@ -t module -m $@.map $< $(CC65_LIB)
