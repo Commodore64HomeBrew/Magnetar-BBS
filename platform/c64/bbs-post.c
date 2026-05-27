@@ -166,3 +166,9 @@ bbs_post_init(void)
   shell_register_command(&bbs_post_command);
 }
 
+void
+bbs_post_deinit(void)
+{
+  shell_unregister_command(&bbs_post_command);
+}
+

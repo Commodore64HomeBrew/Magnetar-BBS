@@ -147,3 +147,12 @@ bbs_read_init(void)
 
 }
 
+void
+bbs_read_deinit(void)
+{
+  shell_unregister_command(&bbs_read_command);
+  shell_unregister_command(&bbs_nextmsg1_command);
+  shell_unregister_command(&bbs_nextmsg2_command);
+  shell_unregister_command(&bbs_prevmsg_command);
+}
+

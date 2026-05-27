@@ -136,3 +136,11 @@ bbs_setboard_init(void)
   shell_register_command(&bbs_nextboard_command);
   shell_register_command(&bbs_prevboard_command);
 }
+
+void
+bbs_setboard_deinit(void)
+{
+  shell_unregister_command(&bbs_setboard_command);
+  shell_unregister_command(&bbs_nextboard_command);
+  shell_unregister_command(&bbs_prevboard_command);
+}

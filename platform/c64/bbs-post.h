@@ -13,5 +13,6 @@
 #include "bbs-defs.h"
 
 void bbs_post_init(void);
+void bbs_post_deinit(void);
 
 #endif /* __BBS_POST_H__ */

@@ -301,7 +301,7 @@ void shell_register_command(struct shell_command *c);
  *             shell_register_command() function.
  *
  */
-//void shell_unregister_command(struct shell_command *c);
+void shell_unregister_command(struct shell_command *c);
 
 /**
  * \brief      Start a shell command from another shell command

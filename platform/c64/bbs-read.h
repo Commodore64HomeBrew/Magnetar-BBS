@@ -14,5 +14,6 @@
 #include "bbs-file.h"
 
 void bbs_read_init(void);
+void bbs_read_deinit(void);
 
 #endif /* __BBS_READ_H__ */
