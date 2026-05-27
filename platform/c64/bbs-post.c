@@ -4,9 +4,14 @@
 #include "bbs-shell.h"
 #include "bbs-post.h"
 #include "bbs-file.h"
+#ifdef BBS_MSG_MODULE
+#include "bbs-msg-bind.h"
+#endif
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#ifndef BBS_MSG_MODULE
 extern BBS_BOARD_REC board;
 extern BBS_CONFIG_REC bbs_config;
 extern BBS_STATUS_REC bbs_status;
@@ -14,6 +19,38 @@ extern BBS_USER_REC bbs_user;
 extern BBS_TIME_REC bbs_time;
 extern BBS_USER_STATS bbs_usrstats;
 extern BBS_SYSTEM_STATS bbs_sysstats;
+#endif
+
+#ifdef BBS_MSG_MODULE
+#define log_message(a, b) do { (void)(a); (void)(b); } while(0)
+#endif
+
+static char *post_buffer;
+static char msg_name[12];
+static char file_name[40];
+static unsigned short post_cur;
+static unsigned short post_room;
+static unsigned short post_chunk;
+
+static void *
+bbs_post_alloc(unsigned size)
+{
+#ifdef BBS_MSG_MODULE
+  return bbsm_malloc_p(size);
+#else
+  return malloc(size);
+#endif
+}
+
+static void
+bbs_post_free(void *ptr)
+{
+#ifdef BBS_MSG_MODULE
+  bbsm_free_p(ptr);
+#else
+  free(ptr);
+#endif
+}
 
 static void
 post_echo_fix(void)
@@ -26,6 +63,10 @@ post_echo_fix(void)
 void
 end_post(void)
 {
+  if(post_buffer != NULL) {
+    bbs_post_free(post_buffer);
+    post_buffer = NULL;
+  }
   bbs_status.status = STATUS_LOCK;
   post_echo_fix();
   poke(0xd011, peek(0xd011) | 0x10);
@@ -48,8 +89,10 @@ post_commit(char *post_buffer, char *msg_name, char *file_name)
   sprintf(msg_name, "%d-%d", b, id);
   file_path(msg_name, id, file_name, 40);
   sprintf(file_name, "%s:%d-%d", file_name, b, id);
+#ifndef BBS_MSG_MODULE
   log_message("", post_buffer);
   log_message("\x99write: ", file_name);
+#endif
   cbm_save(file_name, board.subs_device, post_buffer, bbs_status.msg_size);
   bbs_path_sys_at(file_name, BBS_CFG_FILE);
   cbm_save(file_name, board.sys_device, &bbs_config, sizeof(bbs_config));
@@ -64,11 +107,16 @@ SHELL_COMMAND(bbs_post_command, "w", "w : write a new message", &bbs_post_proces
 PROCESS_THREAD(bbs_post_process, ev, data)
 {
 	struct shell_input *input;
-	char post_buffer[BBS_POST_BUFFER_SIZE];
-	char msg_name[12];
-	char file_name[40];
 
 	PROCESS_BEGIN();
+
+        post_buffer = (char *)bbs_post_alloc((unsigned)BBS_POST_BUFFER_SIZE);
+        if(post_buffer == NULL) {
+          shell_output_str(NULL, "\r\npost buffer unavailable\r\n", "");
+          bbs_status.status = STATUS_LOCK;
+          set_prompt();
+          PROCESS_EXIT();
+        }
 
 	bordercolor(3);
 	poke(0xd011, peek(0xd011) & 0xef);
@@ -80,7 +128,7 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 	bbs_status.status = STATUS_SUBJ;
 	bbs_status.msg_size = 0u;
 	post_buffer[0] = '\0';
-#ifdef BBS_SERIAL_TRANSPORT
+#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_MSG_MODULE)
 	PROCESS_PAUSE();
 #endif
 
@@ -93,16 +141,16 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 			int nw;
 
 			update_time();
-			nw = snprintf(post_buffer, sizeof(post_buffer),
+			nw = snprintf(post_buffer, BBS_POST_BUFFER_SIZE,
 			    "\x1c\n\rFrom: \x05%s\x1e\n\rDate: \x05%d:%d %d/%d/%d\x9e\n\rSubj: \05%s\n\r\n\r",
 			    (const char *)bbs_user.user_name,
 			    (int)bbs_time.hour, (int)bbs_time.minute,
 			    (int)bbs_time.day, (int)bbs_time.month, (int)bbs_time.year,
 			    input->data1);
 			if(nw < 0) nw = 0;
-			if(nw >= (int)sizeof(post_buffer)) {
+			if(nw >= BBS_POST_BUFFER_SIZE) {
 				log_message("\x96", "post subject truncated");
-				nw = (int)sizeof(post_buffer) - 1;
+				nw = BBS_POST_BUFFER_SIZE - 1;
 			}
 
 			bbs_status.msg_size = (unsigned short)nw;
@@ -135,24 +183,20 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 		}
 
 		else {
-			unsigned short cur;
-			unsigned short room;
-			unsigned short chunk;
-
-			cur = bbs_status.msg_size;
-			if(cur >= (unsigned short)(BBS_POST_BUFFER_SIZE - 1u)) {
+			post_cur = bbs_status.msg_size;
+			if(post_cur >= (unsigned short)(BBS_POST_BUFFER_SIZE - 1u)) {
 				log_message("\x96", "post buffer full");
 				continue;
 			}
-			room = (unsigned short)(BBS_POST_BUFFER_SIZE - 1u - cur);
-			chunk = (unsigned short)input->len1;
-			if(chunk > room) {
-				chunk = room;
+			post_room = (unsigned short)(BBS_POST_BUFFER_SIZE - 1u - post_cur);
+			post_chunk = (unsigned short)input->len1;
+			if(post_chunk > post_room) {
+				post_chunk = post_room;
 				log_message("\x96", "post line truncated");
 			}
-			memcpy(post_buffer + cur, input->data1, chunk);
-			post_buffer[cur + chunk] = '\0';
-			bbs_status.msg_size = (unsigned short)(cur + chunk);
+			memcpy(post_buffer + post_cur, input->data1, post_chunk);
+			post_buffer[post_cur + post_chunk] = '\0';
+			bbs_status.msg_size = (unsigned short)(post_cur + post_chunk);
 		}
 
 	}

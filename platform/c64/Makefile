@@ -21,13 +21,13 @@ BBS_HEADLESS := 1
 CONTIKI_BBS_MINIMAL := 1
 DEFINES := WITH_LOGGING,TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,STATIC_DRIVER=c64_swlink_ser
 CFLAGS += -DCONNECTIONS=1 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=128 -DUIP_CONF_TCP_MSS=64
-PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-read.c bbs-post.c bbs-setboard.c bbs-telnetd.c bbs-encodings.c bbs-transfer.c bbs-xmodem.S
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-telnetd.c bbs-encodings.c
 else
 CONTIKI_PROJECT := contiki-bbs
 CONTIKI_NET_MINIMAL := 1
 BBS_HEADLESS := 1
 CONTIKI_BBS_MINIMAL := 1
-PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-read.c bbs-post.c bbs-setboard.c bbs-telnetd.c bbs-encodings.c
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-telnetd.c bbs-encodings.c
 endif
 
 all: $(CONTIKI_PROJECT)
@@ -37,7 +37,18 @@ modules: bbs-msg.mod bbs-xfer.mod
 $(OBJECTDIR):
 	@mkdir -p "$@"
 
+MODULE_FLAVOR := $(if $(filter 1,$(strip $(BBS_SERIAL))),serial,tcp)
+
 TARGET = c64
+MODULE_FLAVOR_FILE := obj_$(TARGET)/.modules-flavor
+
+.PHONY: check-module-flavor
+check-module-flavor: | $(OBJECTDIR)
+	@if [ -f "$(MODULE_FLAVOR_FILE)" ] && [ "$$(cat "$(MODULE_FLAVOR_FILE)")" != "$(MODULE_FLAVOR)" ]; then \
+		echo "error: module flavor mismatch (found $$(cat "$(MODULE_FLAVOR_FILE)"), need $(MODULE_FLAVOR)). run 'make clean' first."; \
+		exit 1; \
+	fi
+	@echo "$(MODULE_FLAVOR)" > "$(MODULE_FLAVOR_FILE)"
 
 ifneq ($(strip $(BBS_SERIAL)),1)
 # WITH_PFS: contiki.cfg and //x/ BBS paths via cfs_open (not cbm_* during boot).
@@ -53,12 +64,9 @@ CFLAGS += --static-locals
 
 include $(CONTIKI)/Makefile.include
 
-ifeq ($(strip $(BBS_SERIAL)),1)
-# --static-locals blows up bbs_xfer_process protothread state (~3k BSS).
-$(OBJECTDIR)/bbs-transfer.o: bbs-transfer.c
+$(OBJECTDIR)/bbs-shell.o: bbs-shell.c
 	@echo "  CC        $<"
 	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -o $@ $<
-endif
 
 ifeq ($(strip $(BBS_HEADLESS)),1)
 CONTIKI_HEADLESS_FILTER := \
@@ -97,19 +105,64 @@ else
 endif
 
 CC65_LIB = $(patsubst %/target,%/lib,$(shell $(CC) --print-target-path))/$(TARGET).lib
+MODULE_CC65_LIB = $(OBJECTDIR)/c64-module.lib
 
-$(OBJECTDIR)/bbs-msg-module.o: bbs-msg-module.c | $(OBJECTDIR)
+$(OBJECTDIR)/bbs-msg-module.o: bbs-msg-module.c | $(OBJECTDIR) check-module-flavor
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_MSG_MODULE -o $@ $<
+
+$(OBJECTDIR)/bbs-msg-bind.o: bbs-msg-bind.c | $(OBJECTDIR) check-module-flavor
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_MSG_MODULE -o $@ $<
+
+$(OBJECTDIR)/bbs-read-module.o: bbs-read.c | $(OBJECTDIR) check-module-flavor
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_MSG_MODULE -o $@ $<
+
+$(OBJECTDIR)/bbs-post-module.o: bbs-post.c | $(OBJECTDIR) check-module-flavor
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_MSG_MODULE -o $@ $<
+
+$(OBJECTDIR)/bbs-setboard-module.o: bbs-setboard.c | $(OBJECTDIR) check-module-flavor
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_MSG_MODULE -o $@ $<
+
+$(OBJECTDIR)/bbs-module-stubs.o: bbs-module-stubs.S | $(OBJECTDIR) check-module-flavor
+	@echo "  AS        $<"
+	@$(AS) $(ASFLAGS) -o $@ $<
+
+$(MODULE_CC65_LIB): | $(OBJECTDIR) check-module-flavor
+	@cp "$(CC65_LIB)" "$@"
+	@ar65 d "$@" crt0.o callmain.o condes.o zerobss.o copydata.o
+
+ifeq ($(strip $(BBS_SERIAL)),1)
+$(OBJECTDIR)/bbs-xfer-module.o: bbs-xfer-module.c | $(OBJECTDIR) check-module-flavor
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_XFER_MODULE -o $@ $<
+
+$(OBJECTDIR)/bbs-transfer-module.o: bbs-transfer.c | $(OBJECTDIR) check-module-flavor
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_XFER_MODULE -o $@ $<
+
+$(OBJECTDIR)/bbs-xmodem-module.o: bbs-xmodem.S | $(OBJECTDIR) check-module-flavor
+	@echo "  AS        $<"
+	@$(AS) $(ASFLAGS) -o $@ $<
+else
+$(OBJECTDIR)/bbs-xfer-module.o: bbs-xfer-module.c | $(OBJECTDIR) check-module-flavor
 	@echo "  CC        $<"
 	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -o $@ $<
+endif
 
-$(OBJECTDIR)/bbs-xfer-module.o: bbs-xfer-module.c | $(OBJECTDIR)
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -o $@ $<
-
-bbs-msg.mod: $(OBJECTDIR)/bbs-msg-module.o
+bbs-msg.mod: $(OBJECTDIR)/bbs-msg-module.o $(OBJECTDIR)/bbs-msg-bind.o $(OBJECTDIR)/bbs-read-module.o $(OBJECTDIR)/bbs-post-module.o $(OBJECTDIR)/bbs-setboard-module.o $(OBJECTDIR)/bbs-module-stubs.o $(MODULE_CC65_LIB)
 	@echo "  LD       " $@
-	$(Q)$(LD) -o $@ -t module -m $@.map $< $(CC65_LIB)
+	$(Q)$(LD) -o $@ -t module -m $@.map $(filter-out $(MODULE_CC65_LIB),$^) $(MODULE_CC65_LIB)
 
+ifeq ($(strip $(BBS_SERIAL)),1)
+bbs-xfer.mod: $(OBJECTDIR)/bbs-xfer-module.o $(OBJECTDIR)/bbs-transfer-module.o $(OBJECTDIR)/bbs-xmodem-module.o $(OBJECTDIR)/bbs-module-stubs.o $(MODULE_CC65_LIB)
+	@echo "  LD       " $@
+	$(Q)$(LD) -o $@ -t module -m $@.map $(filter-out $(MODULE_CC65_LIB),$^) $(MODULE_CC65_LIB)
+else
 bbs-xfer.mod: $(OBJECTDIR)/bbs-xfer-module.o
 	@echo "  LD       " $@
 	$(Q)$(LD) -o $@ -t module -m $@.map $< $(CC65_LIB)
+endif

@@ -23,6 +23,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 
 LIST(commands);
@@ -59,18 +60,38 @@ static void *bbs_cmdmod_image;
 static bbs_module_iface_t *bbs_cmdmod_iface;
 static unsigned char bbs_module_msg_init_ctx(void);
 static void bbs_module_msg_deinit_ctx(void);
-static unsigned char bbs_module_xfer_init_ctx(void);
-static void bbs_module_xfer_deinit_ctx(void);
 #ifdef BBS_SERIAL_TRANSPORT
 static unsigned char bbs_xfer_prepare_command(const char *cmd);
 #endif
+static unsigned long bbs_module_clock_time_ctx(void);
 static const bbs_module_ctx_t bbs_module_ctx = {
   bbs_module_msg_init_ctx,
   bbs_module_msg_deinit_ctx,
-  bbs_module_xfer_init_ctx,
-  bbs_module_xfer_deinit_ctx
+  &board,
+  &bbs_config,
+  &bbs_status,
+  &bbs_user,
+  &bbs_time,
+  &bbs_usrstats,
+  &bbs_sysstats,
+  &shell_event_input,
+  shell_output_str,
+  shell_prompt,
+  shell_register_command,
+  shell_unregister_command,
+  set_prompt,
+  update_time,
+  bbs_banner,
+  file_path,
+  bbs_path_sys_at,
+  malloc,
+  free,
 #ifdef BBS_SERIAL_TRANSPORT
-  , bbs_xfer_set_op
+  &buf,
+  bbs_transport_poll,
+  buf_append,
+  bbs_module_clock_time_ctx,
+  bbs_serial_flush_outbound
 #endif
 };
 
@@ -131,17 +152,11 @@ bbs_module_msg_init(void)
   shell_register_command(&usr_stats_command);
   shell_register_command(&info_command);
   shell_register_command(&movie_command);
-  bbs_setboard_init();
-  bbs_read_init();
-  bbs_post_init();
 }
 
 static void
 bbs_module_msg_deinit(void)
 {
-  bbs_post_deinit();
-  bbs_read_deinit();
-  bbs_setboard_deinit();
   shell_unregister_command(&movie_command);
   shell_unregister_command(&info_command);
   shell_unregister_command(&usr_stats_command);
@@ -161,23 +176,13 @@ bbs_module_msg_deinit_ctx(void)
   bbs_module_msg_deinit();
 }
 
-static unsigned char
-bbs_module_xfer_init_ctx(void)
-{
 #ifdef BBS_SERIAL_TRANSPORT
-  return bbs_xfer_init();
-#else
-  return 0u;
-#endif
-}
-
-static void
-bbs_module_xfer_deinit_ctx(void)
+static unsigned long
+bbs_module_clock_time_ctx(void)
 {
-#ifdef BBS_SERIAL_TRANSPORT
-  bbs_xfer_deinit();
-#endif
+  return (unsigned long)clock_time();
 }
+#endif
 
 /*---------------------------------------------------------------------------*/
 void bbs_defaults(void)
@@ -228,6 +233,18 @@ void set_prompt(void)
 			sprintf(bbs_status.prompt, "\r\nsub:%d ret=%d / %d> ", bbs_status.board_id, next_msg, bbs_config.msg_id[bbs_status.board_id]);
 		}
 	}
+}
+
+static void
+bbs_sub_banner_core(void)
+{
+  unsigned char message[32];
+  unsigned char file[12];
+
+  sprintf((char *)file, "%s%d", BBS_PREFIX_SUB, bbs_status.board_id);
+  bbs_banner(board.sys_prefix, file, bbs_status.encoding_suffix, board.sys_device, 0);
+  sprintf((char *)message, "\x05%s\n\r", board.sub_names[bbs_status.board_id]);
+  shell_output_str(NULL, (char *)message, "");
 }
 /*---------------------------------------------------------------------------*/
 static void bbs_init(void) 
@@ -726,7 +743,7 @@ void bbs_login()
 	shell_output_str(NULL, "\x05s \x9eselect msg board\r\n", "");
 
 	//Display the sub banner:
-	bbs_sub_banner();
+	bbs_sub_banner_core();
 	set_prompt();
 	shell_prompt(bbs_status.prompt);
 	process_start(&bbs_timer_process, NULL);
@@ -1288,7 +1305,8 @@ bbs_module_try_load(unsigned char module_id)
     return 0u;
   }
 #ifdef BBS_SERIAL_TRANSPORT
-  if(module_id == BBS_MODULE_ID_XFER && iface->set_op == NULL) {
+  if(module_id == BBS_MODULE_ID_XFER &&
+      (iface->set_op == NULL || iface->feed == NULL)) {
     mod_free(ctrl.module);
     return 0u;
   }
@@ -1367,13 +1385,8 @@ bbs_modules_activate_msg(void)
   if(bbs_cmdmod_dynamic != 0u) {
     bbs_module_unload_dynamic();
   }
-#ifdef BBS_SERIAL_TRANSPORT
-  if(bbs_cmdmod_active == BBS_CMDMOD_XFER && bbs_cmdmod_dynamic == 0u) {
-    bbs_xfer_deinit();
-  }
-#endif
   if(bbs_module_try_load(BBS_MODULE_ID_MSG) == 0u) {
-    bbs_module_msg_init();
+    return 0u;
   }
   bbs_cmdmod_active = BBS_CMDMOD_MSG;
   return 1u;
@@ -1389,9 +1402,6 @@ bbs_modules_activate_xfer(void)
   if(bbs_cmdmod_active == BBS_CMDMOD_XFER && bbs_cmdmod_dynamic != 0u) {
     return 1u;
   }
-  if(bbs_cmdmod_active == BBS_CMDMOD_XFER && bbs_cmdmod_dynamic == 0u) {
-    return 1u;
-  }
   if(bbs_cmdmod_dynamic != 0u) {
     bbs_module_unload_dynamic();
   }
@@ -1399,9 +1409,7 @@ bbs_modules_activate_xfer(void)
     bbs_module_msg_deinit();
   }
   if(bbs_module_try_load(BBS_MODULE_ID_XFER) == 0u) {
-    if(bbs_xfer_init() == 0u) {
-      return 0u;
-    }
+    return 0u;
   }
   bbs_cmdmod_active = BBS_CMDMOD_XFER;
   return 1u;
@@ -1460,8 +1468,8 @@ bbs_xfer_prepare_command(const char *cmd)
     bbs_cmdmod_iface->set_op(cmd);
     return 1u;
   }
-  bbs_xfer_set_op(cmd);
-  return 1u;
+  (void)cmd;
+  return 0u;
 }
 #endif
 
@@ -1666,6 +1674,19 @@ shell_input(char *commandline, int commandline_len)
       process_post(&bbs_timer_process, shell_event_input, NULL);
     }
   //}
+}
+
+void
+bbs_module_xfer_feed(unsigned char c)
+{
+#ifdef BBS_SERIAL_TRANSPORT
+  if(bbs_cmdmod_active == BBS_CMDMOD_XFER && bbs_cmdmod_dynamic != 0u &&
+      bbs_cmdmod_iface != NULL && bbs_cmdmod_iface->feed != NULL) {
+    bbs_cmdmod_iface->feed(c);
+  }
+#else
+  (void)c;
+#endif
 }
 /*---------------------------------------------------------------------------*/
 void
