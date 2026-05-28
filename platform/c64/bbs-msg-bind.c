@@ -21,6 +21,11 @@ void (*bbsm_file_path_p)(const char *file, unsigned short num, char *out, unsign
 void (*bbsm_bbs_path_sys_at_p)(char *out, const char *suffix);
 void *(*bbsm_malloc_p)(unsigned size);
 void (*bbsm_free_p)(void *ptr);
+BBS_BUFFER *bbsm_buffer_p;
+int (*bbsm_buf_append_p)(const char *data, int len);
+int (*bbsm_buf_putc_raw_p)(unsigned char c);
+void (*bbsm_transport_stream_clear_sent_p)(void);
+void (*bbsm_stream_set_eof_process_p)(struct process *p);
 
 unsigned char
 bbs_msg_bind(const bbs_module_ctx_t *ctx)
@@ -33,7 +38,11 @@ bbs_msg_bind(const bbs_module_ctx_t *ctx)
       ctx->bbsm_shell_unregister_command == NULL || ctx->bbsm_set_prompt == NULL ||
       ctx->bbsm_update_time == NULL || ctx->bbsm_bbs_banner == NULL ||
       ctx->bbsm_file_path == NULL || ctx->bbsm_bbs_path_sys_at == NULL ||
-      ctx->bbsm_malloc == NULL || ctx->bbsm_free == NULL) {
+      ctx->bbsm_malloc == NULL || ctx->bbsm_free == NULL ||
+      ctx->bbsm_buffer == NULL || ctx->bbsm_buf_append == NULL ||
+      ctx->bbsm_buf_putc_raw == NULL ||
+      ctx->bbsm_transport_stream_clear_sent == NULL ||
+      ctx->bbsm_stream_set_eof_process == NULL) {
     return 0u;
   }
   bbsm_board_p = (BBS_BOARD_REC *)ctx->bbsm_board;
@@ -55,6 +64,11 @@ bbs_msg_bind(const bbs_module_ctx_t *ctx)
   bbsm_bbs_path_sys_at_p = ctx->bbsm_bbs_path_sys_at;
   bbsm_malloc_p = ctx->bbsm_malloc;
   bbsm_free_p = ctx->bbsm_free;
+  bbsm_buffer_p = (BBS_BUFFER *)ctx->bbsm_buffer;
+  bbsm_buf_append_p = ctx->bbsm_buf_append;
+  bbsm_buf_putc_raw_p = ctx->bbsm_buf_putc_raw;
+  bbsm_transport_stream_clear_sent_p = ctx->bbsm_transport_stream_clear_sent;
+  bbsm_stream_set_eof_process_p = ctx->bbsm_stream_set_eof_process;
   return 1u;
 }
 #endif

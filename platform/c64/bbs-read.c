@@ -52,7 +52,7 @@ int read_msg(unsigned short num)
 
 /*---------------------------------------------------------------------------*/
 PROCESS(bbs_read_process, "read");
-SHELL_COMMAND(bbs_read_command, "#", "# : select message #", &bbs_read_process);
+SHELL_COMMAND(bbs_read_command, "#", "# : select msg", &bbs_read_process);
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_read_process, ev, data)
 {
@@ -87,7 +87,7 @@ PROCESS_THREAD(bbs_read_process, ev, data)
 
 PROCESS(bbs_nextmsg_process, "nextmsg");
 SHELL_COMMAND(bbs_nextmsg1_command, "\x0d", "", &bbs_nextmsg_process);
-SHELL_COMMAND(bbs_nextmsg2_command, "\x0a", "ret : read next message", &bbs_nextmsg_process);
+SHELL_COMMAND(bbs_nextmsg2_command, "\x0a", "ret : next msg", &bbs_nextmsg_process);
 
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_nextmsg_process, ev, data)
@@ -114,7 +114,7 @@ PROCESS_THREAD(bbs_nextmsg_process, ev, data)
 
 /*---------------------------------------------------------------------------*/
 PROCESS(bbs_prevmsg_process, "prevmsg");
-SHELL_COMMAND(bbs_prevmsg_command, "r", "r : read last message", &bbs_prevmsg_process);
+SHELL_COMMAND(bbs_prevmsg_command, "r", "r : last msg", &bbs_prevmsg_process);
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_prevmsg_process, ev, data)
 {

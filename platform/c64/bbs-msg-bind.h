@@ -25,6 +25,11 @@ extern void (*bbsm_file_path_p)(const char *file, unsigned short num, char *out,
 extern void (*bbsm_bbs_path_sys_at_p)(char *out, const char *suffix);
 extern void *(*bbsm_malloc_p)(unsigned size);
 extern void (*bbsm_free_p)(void *ptr);
+extern BBS_BUFFER *bbsm_buffer_p;
+extern int (*bbsm_buf_append_p)(const char *data, int len);
+extern int (*bbsm_buf_putc_raw_p)(unsigned char c);
+extern void (*bbsm_transport_stream_clear_sent_p)(void);
+extern void (*bbsm_stream_set_eof_process_p)(struct process *p);
 
 unsigned char bbs_msg_bind(const bbs_module_ctx_t *ctx);
 
@@ -45,6 +50,11 @@ unsigned char bbs_msg_bind(const bbs_module_ctx_t *ctx);
 #define bbs_banner bbsm_bbs_banner_p
 #define file_path bbsm_file_path_p
 #define bbs_path_sys_at bbsm_bbs_path_sys_at_p
+#define buf (*bbsm_buffer_p)
+#define buf_append bbsm_buf_append_p
+#define buf_putc_raw bbsm_buf_putc_raw_p
+#define bbs_transport_stream_clear_sent bbsm_transport_stream_clear_sent_p
+#define bbs_stream_set_eof_process bbsm_stream_set_eof_process_p
 #endif
 
 #endif /* BBS_MSG_BIND_H_ */

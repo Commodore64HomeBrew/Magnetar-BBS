@@ -3,12 +3,19 @@
 
 #define BBS_MODULE_ID_MSG   1u
 #define BBS_MODULE_ID_XFER  2u
+#define BBS_MODULE_ID_POST  3u
 
 struct shell_command;
+struct process;
 
 typedef struct bbs_module_ctx {
   unsigned char (*msg_init)(void);
   void (*msg_deinit)(void);
+  void (*bbsm_msg_set_handlers)(void (*sys_stats)(void), void (*usr_stats)(void), void (*info)(void));
+  void (*bbsm_post_set_handlers)(
+      unsigned char (*post_begin)(void),
+      void (*post_on_input)(const struct shell_input *in),
+      void (*post_cancel)(void));
   void *bbsm_board;
   void *bbsm_config;
   void *bbsm_status;
@@ -29,13 +36,14 @@ typedef struct bbs_module_ctx {
   void (*bbsm_bbs_path_sys_at)(char *out, const char *suffix);
   void *(*bbsm_malloc)(unsigned size);
   void (*bbsm_free)(void *ptr);
-#ifdef BBS_SERIAL_TRANSPORT
   void *bbsm_buffer;
   void (*bbsm_transport_poll)(void);
+  void (*bbsm_transport_stream_clear_sent)(void);
+  void (*bbsm_stream_set_eof_process)(struct process *p);
   int (*bbsm_buf_append)(const char *data, int len);
+  int (*bbsm_buf_putc_raw)(unsigned char c);
   unsigned long (*bbsm_clock_time)(void);
   void (*bbsm_serial_flush_outbound)(void);
-#endif
 } bbs_module_ctx_t;
 
 /*
@@ -50,12 +58,10 @@ typedef struct bbs_module_iface {
   unsigned char module_id;
   char jmp_init;
   unsigned char (*init)(const bbs_module_ctx_t *ctx);
-#ifdef BBS_SERIAL_TRANSPORT
   char jmp_set_op;
   void (*set_op)(const char *cmd);
   char jmp_feed;
   void (*feed)(unsigned char c);
-#endif
   char jmp_deinit;
   void (*deinit)(void);
 } bbs_module_iface_t;

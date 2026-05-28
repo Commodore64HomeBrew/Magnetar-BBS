@@ -4,14 +4,16 @@
 #include "bbs-shell.h"
 #include "bbs-post.h"
 #include "bbs-file.h"
-#ifdef BBS_MSG_MODULE
+#if defined(BBS_MSG_MODULE)
 #include "bbs-msg-bind.h"
+#elif defined(BBS_POST_MODULE)
+#include "bbs-post-bind.h"
 #endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef BBS_MSG_MODULE
+#if !defined(BBS_MSG_MODULE) && !defined(BBS_POST_MODULE)
 extern BBS_BOARD_REC board;
 extern BBS_CONFIG_REC bbs_config;
 extern BBS_STATUS_REC bbs_status;
@@ -21,7 +23,7 @@ extern BBS_USER_STATS bbs_usrstats;
 extern BBS_SYSTEM_STATS bbs_sysstats;
 #endif
 
-#ifdef BBS_MSG_MODULE
+#if defined(BBS_MSG_MODULE) || defined(BBS_POST_MODULE)
 #define log_message(a, b) do { (void)(a); (void)(b); } while(0)
 #endif
 
@@ -35,7 +37,7 @@ static unsigned short post_chunk;
 static void *
 bbs_post_alloc(unsigned size)
 {
-#ifdef BBS_MSG_MODULE
+#if defined(BBS_MSG_MODULE) || defined(BBS_POST_MODULE)
   return bbsm_malloc_p(size);
 #else
   return malloc(size);
@@ -45,7 +47,7 @@ bbs_post_alloc(unsigned size)
 static void
 bbs_post_free(void *ptr)
 {
-#ifdef BBS_MSG_MODULE
+#if defined(BBS_MSG_MODULE) || defined(BBS_POST_MODULE)
   bbsm_free_p(ptr);
 #else
   free(ptr);
@@ -102,7 +104,7 @@ post_commit(char *post_buffer, char *msg_name, char *file_name)
 }
 
 PROCESS(bbs_post_process, "write");
-SHELL_COMMAND(bbs_post_command, "w", "w : write a new message", &bbs_post_process);
+SHELL_COMMAND(bbs_post_command, "w", "w : write msg", &bbs_post_process);
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_post_process, ev, data)
 {
@@ -112,7 +114,7 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 
         post_buffer = (char *)bbs_post_alloc((unsigned)BBS_POST_BUFFER_SIZE);
         if(post_buffer == NULL) {
-          shell_output_str(NULL, "\r\npost buffer unavailable\r\n", "");
+          //shell_output_str(NULL, "\r\npost buffer unavailable\r\n", "");
           bbs_status.status = STATUS_LOCK;
           set_prompt();
           PROCESS_EXIT();
@@ -149,7 +151,7 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 			    input->data1);
 			if(nw < 0) nw = 0;
 			if(nw >= BBS_POST_BUFFER_SIZE) {
-				log_message("\x96", "post subject truncated");
+				log_message("\x96", "subj cutoff");
 				nw = BBS_POST_BUFFER_SIZE - 1;
 			}
 
@@ -185,14 +187,14 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 		else {
 			post_cur = bbs_status.msg_size;
 			if(post_cur >= (unsigned short)(BBS_POST_BUFFER_SIZE - 1u)) {
-				log_message("\x96", "post buffer full");
+				//log_message("\x96", "post buffer full");
 				continue;
 			}
 			post_room = (unsigned short)(BBS_POST_BUFFER_SIZE - 1u - post_cur);
 			post_chunk = (unsigned short)input->len1;
 			if(post_chunk > post_room) {
 				post_chunk = post_room;
-				log_message("\x96", "post line truncated");
+				//log_message("\x96", "post line truncated");
 			}
 			memcpy(post_buffer + post_cur, input->data1, post_chunk);
 			post_buffer[post_cur + post_chunk] = '\0';

@@ -45,7 +45,6 @@ const bbs_module_iface_t bbs_xfer_module_iface = {
   BBS_MODULE_ID_XFER,
   0,
   bbs_xfer_module_init,
-#ifdef BBS_SERIAL_TRANSPORT
 #ifdef BBS_XFER_MODULE
   0,
   bbs_xfer_module_set_op,
@@ -56,7 +55,6 @@ const bbs_module_iface_t bbs_xfer_module_iface = {
   0,
   0,
   0,
-#endif
 #endif
   0,
   bbs_xfer_module_deinit

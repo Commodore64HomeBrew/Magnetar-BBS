@@ -514,11 +514,11 @@ static unsigned char xfer_cd_local(const char *arg)
 
 /*---------------------------------------------------------------------------*/
 PROCESS(bbs_xfer_process, "xfer");
-SHELL_COMMAND(bbs_xfer_list_command, "$", "$ : list transfer files", &bbs_xfer_process);
+SHELL_COMMAND(bbs_xfer_list_command, "$", "$ : list files", &bbs_xfer_process);
 SHELL_COMMAND(bbs_xfer_dl_command, "d", "d : download file #", &bbs_xfer_process);
 SHELL_COMMAND(bbs_xfer_ul_command, "u", "u : upload file", &bbs_xfer_process);
-SHELL_COMMAND(bbs_xfer_cd_command, "cd", "cd : change transfer dir", &bbs_xfer_process);
-SHELL_COMMAND(bbs_xfer_md_command, "md", "md : make transfer dir", &bbs_xfer_process);
+SHELL_COMMAND(bbs_xfer_cd_command, "cd", "cd : change dir", &bbs_xfer_process);
+SHELL_COMMAND(bbs_xfer_md_command, "md", "md : make dir", &bbs_xfer_process);
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_xfer_process, ev, data)
 {
@@ -529,7 +529,7 @@ PROCESS_THREAD(bbs_xfer_process, ev, data)
 
   PROCESS_BEGIN();
   if(s == NULL) {
-    shell_output_str(NULL, "\n\rtransfer module unavailable\n\r", "");
+    //shell_output_str(NULL, "\n\rtransfer module unavailable\n\r", "");
     PROCESS_EXIT();
   }
   op = s->op_line;
@@ -543,10 +543,10 @@ PROCESS_THREAD(bbs_xfer_process, ev, data)
   if(op != NULL && op[0] == (char)'d' && op[1] == 0) {
     xfer_scan_dir(s->tab);
     if(s->nfiles == 0u) {
-      shell_output_str(NULL, "\n\rno files\n\r", "");
+      //shell_output_str(NULL, "\n\rno files\n\r", "");
       PROCESS_EXIT();
     }
-    shell_prompt("\n\rselect file #: ");
+    shell_prompt("\n\rselect file: ");
     PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
     input = data;
     num = xfer_atou(input->data1);

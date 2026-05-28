@@ -53,6 +53,8 @@ PROCESS_NAME(telnetd_process);
 void bbs_transport_session_close(void);
 void bbs_transport_busy_reject(void);
 void bbs_transport_stream_clear_sent(void);
+/* Set/clear process to poll on stream EOF (movie module sets this). */
+void bbs_stream_set_eof_process(struct process *p);
 
 #ifndef BBS_SERIAL_TRANSPORT
 void telnetd_appcall(void *data);

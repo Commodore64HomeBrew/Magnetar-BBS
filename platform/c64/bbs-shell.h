@@ -140,6 +140,8 @@ void shell_start_after_probe(void);
  */
 void shell_input(char *commandline, int commandline_len);
 void bbs_module_xfer_feed(unsigned char c);
+void bbs_post_core_init(void);
+void bbs_post_core_deinit(void);
 
 /**
  * \brief      Stop the shell
@@ -400,7 +402,14 @@ struct shell_input {
 #include "bbs-read.h"
 #include "bbs-setboard.h"
 #include "bbs-post.h"
-/*extern BBS_STATUS_REC bbs_status;*/
+
+/* Core-owned session globals (shared with helper modules). */
+extern BBS_STATUS_REC bbs_status;
+
+/* Post-module handler hooks (set by bbs-post.mod at init). */
+extern unsigned char (*bbs_post_begin_h)(void);
+extern void (*bbs_post_on_input_h)(const struct shell_input *in);
+extern void (*bbs_post_cancel_h)(void);
 
 #endif /* __SHELL_H__ */
 

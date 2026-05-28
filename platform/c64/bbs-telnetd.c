@@ -64,7 +64,7 @@ PROCESS(telnetd_process, "Telnet server");
 extern char telnetd_reject_text[];
 #else
 static char telnetd_reject_text[] =
-            "Too many connections, please try again later.";
+            "Too many connections";
 #endif
 
 
@@ -116,14 +116,22 @@ TELNETD_STATE s;
 
 BBS_BUFFER buf;
 
-PROCESS_NAME(movie_process);
+static struct process *bbs_stream_eof_process;
+
+void
+bbs_stream_set_eof_process(struct process *p)
+{
+  bbs_stream_eof_process = p;
+}
 
 /* Stream hits EOF while movie PT waits in PROCESS_YIELD_UNTIL; POLL resumes it */
 static void
 bbs_notice_stream_eof(void)
 {
   bbs_status.status = STATUS_LOCK;
-  process_poll(&movie_process);
+  if(bbs_stream_eof_process != NULL) {
+    process_poll(bbs_stream_eof_process);
+  }
 }
 
 static void telnetd_feed(const unsigned char *ptr, unsigned int len);

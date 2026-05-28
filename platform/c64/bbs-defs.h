@@ -9,9 +9,11 @@
 #define __BBSDEFS_H_
 
 #define BBS_STRING_VERSION "1.0"
-#define BBS_COPYRIGHT_STRING "\n\r          Magnetar BBS 1.0 \n\r        2018-2026 K. Casteels\n\r        2009-2015 N. Haedecke\n\r        2003-2013 A. Dunkels\n\r"
+#define BBS_COPYRIGHT_STRING "\n\rMagnetar BBS 1.0\n\r2018-2026 K. Casteels\n\r2009-2015 N. Haedecke\n\r2003-2013 A. Dunkels\n\r"
 
 #define BBS_ENCODING_STRING "\n\rpetscii - 80col (8)\n\rpetscii - 40col (4)\n\rpetscii - 22col (2)\n\rascii w/ echo   (e)\n\rlinux or vt100  (l)\n\r\n\r>  "
+
+#define BBS_HELP_STRING "\n\rcontact alterus@gmail.com with problems"
 
 #define BBS_MODE_SHELL          0
 #define BBS_MODE_CONSOLE        1
