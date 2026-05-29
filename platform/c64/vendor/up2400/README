@@ -1,0 +1,6 @@
+C64 userport 2400 baud serial driver for cc65 (UP2400).
+
+Upstream: https://github.com/nanoflite/c64-up2400-cc65
+Copyright Johan Van den Brande (2014). See upstream repository for license terms.
+
+Vendored for Magnetar BBS serial builds (make BBS_SERIAL=2).
