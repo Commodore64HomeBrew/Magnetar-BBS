@@ -126,7 +126,7 @@ PROCESS_THREAD(bbs_nextmsg_process, ev, data)
   unsigned short num;
 
   PROCESS_BEGIN();
-#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_MSG_MODULE)
+#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_BANK_BUILD) && !defined(BBS_MSG_MODULE)
   PROCESS_PAUSE();
 #endif
 
@@ -152,7 +152,7 @@ PROCESS_THREAD(bbs_prevmsg_process, ev, data)
   unsigned short num;
 
   PROCESS_BEGIN();
-#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_MSG_MODULE)
+#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_BANK_BUILD) && !defined(BBS_MSG_MODULE)
   PROCESS_PAUSE();
 #endif
 

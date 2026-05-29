@@ -44,20 +44,11 @@
 #include <time.h> /* CLK_TCK: jiffies/sec, same basis as clock_seconds() in settime */
 #endif
 #include "bbs-encodings.h"
-#ifndef BBS_SERIAL_TRANSPORT
 #include "bbs-resident.h"
-#endif
 #include "bbs-shell.h"
 #include "bbs-defs.h"
 #include "bbs-wrap.h"
 #include "bbs-telnetd.h"
-#ifdef BBS_SERIAL_TRANSPORT
-extern BBS_BOARD_REC board;
-extern BBS_STATUS_REC bbs_status;
-extern BBS_USER_REC bbs_user;
-extern BBS_USER_STATS bbs_usrstats;
-extern BBS_SYSTEM_STATS bbs_sysstats;
-#endif
 extern unsigned short bbs_locked;
 
 PROCESS(telnetd_process, "Telnet server");
@@ -408,9 +399,22 @@ telnetd_kick_disconnect(void)
     tcpip_poll_tcp(primary_conn);
   }
 }
+
+void
+telnetd_kick_stream(void)
+{
+  if(primary_conn != NULL) {
+    tcpip_poll_tcp(primary_conn);
+  }
+}
 #else /* BBS_SERIAL_TRANSPORT */
 void
 telnetd_kick_disconnect(void)
+{
+}
+
+void
+telnetd_kick_stream(void)
 {
 }
 #endif /* BBS_SERIAL_TRANSPORT */

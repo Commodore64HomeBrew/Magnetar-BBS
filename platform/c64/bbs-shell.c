@@ -11,19 +11,10 @@
 
 #include "contiki.h"
 #include "contiki-lib.h"
-#ifndef BBS_SERIAL_TRANSPORT
 #include "bbs-resident.h"
-#endif
 #include "bbs-shell.h"
 #include "bbs-encodings.h"
-#include "bbs-msg-extra.h"
-#ifndef BBS_SERIAL_TRANSPORT
 #include "bbs-bank.h"
-#else
-#include "bbs-setboard.h"
-#include "bbs-read.h"
-#include "bbs-post.h"
-#endif
 #include "bbs-file.h"
 #include "bbs-telnetd.h"
 //#include <em.h>
@@ -42,25 +33,14 @@ static struct process *front_process;
 static unsigned long clock_offset;
 static unsigned long last_time=0;
 
-#ifdef BBS_SERIAL_TRANSPORT
-BBS_BOARD_REC board;
-BBS_CONFIG_REC bbs_config;
-BBS_STATUS_REC bbs_status;
-BBS_USER_REC bbs_user;
-BBS_USER_STATS bbs_usrstats;
-BBS_SYSTEM_STATS bbs_sysstats;
-BBS_TIME_REC bbs_time;
-#endif
 extern BBS_BUFFER buf;
 
 unsigned short bbs_locked=0;
 unsigned short set_step=0;
 
-#ifndef BBS_SERIAL_TRANSPORT
 static unsigned char bbs_xfer_prepare_command(const char *cmd);
 static unsigned char bbs_command_bank_id(const char *cmd, int len);
 static unsigned char bbs_bank_route_command(const char *cmd, int len);
-#endif
 
 /*---------------------------------------------------------------------------*/
 PROCESS(shell_process, "Shell");
@@ -88,15 +68,6 @@ SHELL_COMMAND(quit_command, "q", "q : quit", &shell_exit_process);
 
 PROCESS(settime_process, "settime");
 SHELL_COMMAND(settime_command, "t", "t : time", &settime_process);
-
-PROCESS(sys_stats_process, "sysstats");
-SHELL_COMMAND(sys_stats_command, "x", "x : bbs stats", &sys_stats_process);
-
-PROCESS(usr_stats_process, "usrstats");
-SHELL_COMMAND(usr_stats_command, "y", "y : your stats", &usr_stats_process);
-
-PROCESS(info_process, "info");
-SHELL_COMMAND(info_command, "i", "i : bbs info", &info_process);
 
 PROCESS(movie_process, "movies");
 SHELL_COMMAND(movie_command, "m", "m : movies", &movie_process);
@@ -452,11 +423,9 @@ void bbs_login()
 	shell_output_str(NULL, "\r\n\x05? \x9fto list commands", "");
 	shell_output_str(NULL, "\x05s \x9eselect msg board\r\n", "");
 
-#ifndef BBS_SERIAL_TRANSPORT
 	if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
 		shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
 	}
-#endif
 
 	//Display the sub banner:
 	bbs_sub_banner_core();
@@ -471,7 +440,14 @@ static void
 login_stats_continue(void)
 {
   bbs_record_last_caller();
-  bbs_msg_system_stats();
+  if(bbs_bank_load(BBS_BANK_ID_UI) != 0u &&
+     BBS_BANK_HDR->run_sys_stats != NULL) {
+    bbs_bank_hw_enable_for_exec();
+    BBS_BANK_HDR->run_sys_stats();
+    bbs_bank_hw_disable_exec();
+  } else {
+    shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
+  }
   shell_output_str(NULL, "\r\nhit return to continue", "");
   bbs_status.status = STATUS_STATS;
 }
@@ -704,27 +680,6 @@ PROCESS_THREAD(version_process, ev, data)
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
-PROCESS_THREAD(sys_stats_process, ev, data)
-{
-  PROCESS_BEGIN();
-  bbs_msg_system_stats();
-  PROCESS_END();
-}
-/*---------------------------------------------------------------------------*/
-PROCESS_THREAD(usr_stats_process, ev, data)
-{
-  PROCESS_BEGIN();
-  bbs_msg_user_stats();
-  PROCESS_END();
-}
-/*---------------------------------------------------------------------------*/
-PROCESS_THREAD(info_process, ev, data)
-{
-  PROCESS_BEGIN();
-  bbs_msg_info();
-  PROCESS_END();
-}
-/*---------------------------------------------------------------------------*/
 PROCESS_THREAD(movie_process, ev, data)
 {
   unsigned short num;
@@ -761,9 +716,14 @@ PROCESS_THREAD(movie_process, ev, data)
     shell_output_str(NULL, "\x93", "\x8e");
     PROCESS_PAUSE();
 
-    cbm_open(10, board.media_device, 10, (char *)file);
+    if(cbm_open(10, board.media_device, 10, (char *)file) != 0) {
+      shell_output_str(NULL, "\r\n\x96movie open failed\r\n", "");
+      bordercolor(2);
+      poke(0xd011, peek(0xd011) | 0x10);
+    } else {
     bbs_stream_set_eof_process(&movie_process);
     bbs_status.status = STATUS_STREAM;
+    telnetd_kick_stream();
 
     PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || bbs_status.status == STATUS_LOCK);
     if(ev == shell_event_input) {
@@ -776,6 +736,7 @@ PROCESS_THREAD(movie_process, ev, data)
     bbs_stream_set_eof_process(NULL);
     bordercolor(2);
     poke(0xd011, peek(0xd011) | 0x10);
+    }
   }
 
   PROCESS_PAUSE();
@@ -899,7 +860,6 @@ PROCESS_THREAD(settime_process, ev, data)
 
 
 
-#ifndef BBS_SERIAL_TRANSPORT
 static unsigned char
 bbs_command_bank_id(const char *cmd, int len)
 {
@@ -911,6 +871,10 @@ bbs_command_bank_id(const char *cmd, int len)
       return BBS_BANK_ID_XFER;
     case 'w':
       return BBS_BANK_ID_POST;
+    case 'x':
+    case 'y':
+    case 'i':
+      return BBS_BANK_ID_UI;
     case '#':
     case 'r':
     case 's':
@@ -940,6 +904,8 @@ bbs_bank_unavailable_msg(unsigned char bank_id)
     return "\n\rpost bank unavailable\n\r";
   case BBS_BANK_ID_MSG:
     return "\n\rmessage bank unavailable\n\r";
+  case BBS_BANK_ID_UI:
+    return "\n\rstats bank unavailable\n\r";
   default:
     return "\n\rbank unavailable\n\r";
   }
@@ -973,9 +939,7 @@ bbs_bank_route_command(const char *cmd, int len)
   }
   return 1u;
 }
-#endif /* !BBS_SERIAL_TRANSPORT */
 
-#ifndef BBS_SERIAL_TRANSPORT
 static unsigned char
 bbs_xfer_prepare_command(const char *cmd)
 {
@@ -986,7 +950,6 @@ bbs_xfer_prepare_command(const char *cmd)
   (void)cmd;
   return 0u;
 }
-#endif
 
 /*---------------------------------------------------------------------------*/
 static struct shell_command *
@@ -1030,12 +993,19 @@ start_command(char *commandline, struct shell_command *child)
     command_len = (int)(args - commandline - 1);
   }
 
-#ifndef BBS_SERIAL_TRANSPORT
   if(bbs_bank_route_command(commandline, command_len) == 0u) {
     command_kill(child);
     return NULL;
   }
-#endif
+
+  {
+    unsigned char bank_id;
+
+    bank_id = bbs_command_bank_id(commandline, command_len);
+    if(bank_id != 0u && bbs_bank_active() != 0u) {
+      bbs_bank_hw_enable_for_exec();
+    }
+  }
 
   
   /* Go through list of commands to find a match for the first word in
@@ -1058,16 +1028,13 @@ start_command(char *commandline, struct shell_command *child)
     c->child = child;
     /*    printf("shell: start_command starting '%s'\n", c->process->name);*/
     /* Start a new process for the command. */
-#ifndef BBS_SERIAL_TRANSPORT
     if(bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_XFER) {
       if(bbs_xfer_prepare_command(commandline) == 0u) {
         command_kill(child);
         return NULL;
       }
       process_start(c->process, NULL);
-    } else
-#endif
-    {
+    } else {
       process_start(c->process, args);
     }
   }
@@ -1304,6 +1271,7 @@ PROCESS_THREAD(shell_server_process, ev, data)
     PROCESS_WAIT_EVENT();
     if(ev == PROCESS_EVENT_EXITED) {
       p = data;
+      bbs_bank_hw_disable_exec();
       if(p == front_process) {
         front_process = &shell_process;
       }
@@ -1331,17 +1299,8 @@ shell_init(void)
   shell_register_command(&version_command);
   shell_register_command(&settime_command);
   shell_register_command(&quit_command);
-  shell_register_command(&sys_stats_command);
-  shell_register_command(&usr_stats_command);
-  shell_register_command(&info_command);
   shell_register_command(&movie_command);
-#ifndef BBS_SERIAL_TRANSPORT
   bbs_shared_publish();
-#else
-  bbs_read_init();
-  bbs_setboard_init();
-  bbs_post_init();
-#endif
 
   /* local console eye candy */
   clrscr();
@@ -1418,9 +1377,7 @@ void
 shell_stop(void)
 {
   //log_message("\x9e", "shell stop");
-#ifndef BBS_SERIAL_TRANSPORT
   bbs_bank_unload();
-#endif
   bbs_unlock();
   killall();
 }

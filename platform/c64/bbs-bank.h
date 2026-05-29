@@ -17,6 +17,7 @@
 #define BBS_BANK_ID_XFER    1u
 #define BBS_BANK_ID_POST    2u
 #define BBS_BANK_ID_MSG     3u
+#define BBS_BANK_ID_UI      4u
 
 struct shell_command;
 struct shell_input;
@@ -42,6 +43,7 @@ typedef struct bbs_shared_s {
   void (*shell_unregister_command)(struct shell_command *c);
   void (*transport_poll)(void);
   int (*buf_append)(const char *data, int len);
+  int (*buf_putc_raw)(unsigned char c);
   unsigned long (*clock_time)(void);
   void (*serial_flush_outbound)(void);
   void (*set_prompt)(void);
@@ -73,12 +75,15 @@ typedef struct bbs_bank_hdr_s {
   void (*deinit)(void);
   void (*set_op)(const char *cmd);
   void (*feed)(unsigned char c);
+  void (*run_sys_stats)(void);
 } bbs_bank_hdr_t;
 
 #define BBS_BANK_HDR  ((bbs_bank_hdr_t *)BBS_BANK_BASE)
 
 void bbs_shared_publish(void);
 void bbs_shared_sync_back(void);
+void bbs_bank_hw_enable_for_exec(void);
+void bbs_bank_hw_disable_exec(void);
 unsigned char bbs_bank_load(unsigned char bank_id);
 void bbs_bank_unload(void);
 unsigned char bbs_bank_active(void);

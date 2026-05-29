@@ -100,7 +100,7 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 	bbs_status.status = STATUS_SUBJ;
 	bbs_status.msg_size = 0u;
 	post_buffer[0] = '\0';
-#ifdef BBS_SERIAL_TRANSPORT
+#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_BANK_BUILD)
 	PROCESS_PAUSE();
 #endif
 

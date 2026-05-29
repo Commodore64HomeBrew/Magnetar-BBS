@@ -1,20 +1,15 @@
-#ifndef BBS_SERIAL_TRANSPORT
-#include "bbs-resident.h"
-#endif
+#include "contiki.h"
 #include "bbs-shell.h"
 #include "bbs-defs.h"
 #include "bbs-msg-extra.h"
 #include "bbs-fmt.h"
-#include "bbs-telnetd.h"
-#ifdef BBS_SERIAL_TRANSPORT
-extern BBS_BOARD_REC board;
-extern BBS_CONFIG_REC bbs_config;
-extern BBS_STATUS_REC bbs_status;
-extern BBS_USER_REC bbs_user;
-extern BBS_USER_STATS bbs_usrstats;
-extern BBS_SYSTEM_STATS bbs_sysstats;
+
+#ifndef BBS_BANK_BUILD
+#error "bbs-msg-extra.c is built for bank overlays only (BBS_BANK_BUILD)"
 #endif
-extern BBS_BUFFER buf;
+
+#include "bbs-bank-macros.h"
+#define buf_putc_raw(c) (BBS_SHARED->buf_putc_raw((unsigned char)(c)))
 
 void
 bbs_msg_info(void)
@@ -134,3 +129,54 @@ stats_chart_done:
   shell_output_str(NULL, (char *)message, "");
 }
 
+PROCESS(sys_stats_process, "sysstats");
+SHELL_COMMAND(sys_stats_command, "x", "x : bbs stats", &sys_stats_process);
+
+PROCESS(usr_stats_process, "usrstats");
+SHELL_COMMAND(usr_stats_command, "y", "y : your stats", &usr_stats_process);
+
+PROCESS(info_process, "info");
+SHELL_COMMAND(info_command, "i", "i : bbs info", &info_process);
+
+PROCESS_THREAD(sys_stats_process, ev, data)
+{
+  PROCESS_BEGIN();
+  (void)ev;
+  (void)data;
+  bbs_msg_system_stats();
+  PROCESS_END();
+}
+
+PROCESS_THREAD(usr_stats_process, ev, data)
+{
+  PROCESS_BEGIN();
+  (void)ev;
+  (void)data;
+  bbs_msg_user_stats();
+  PROCESS_END();
+}
+
+PROCESS_THREAD(info_process, ev, data)
+{
+  PROCESS_BEGIN();
+  (void)ev;
+  (void)data;
+  bbs_msg_info();
+  PROCESS_END();
+}
+
+void
+bbs_msg_extra_init(void)
+{
+  shell_register_command(&sys_stats_command);
+  shell_register_command(&usr_stats_command);
+  shell_register_command(&info_command);
+}
+
+void
+bbs_msg_extra_deinit(void)
+{
+  shell_unregister_command(&sys_stats_command);
+  shell_unregister_command(&usr_stats_command);
+  shell_unregister_command(&info_command);
+}

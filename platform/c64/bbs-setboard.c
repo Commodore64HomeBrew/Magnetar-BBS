@@ -132,7 +132,7 @@ SHELL_COMMAND(bbs_nextboard_command, "+", "+ : next board", &bbs_nextboard_proce
 PROCESS_THREAD(bbs_nextboard_process, ev, data)
 {
   PROCESS_BEGIN();
-#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_MSG_MODULE)
+#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_BANK_BUILD) && !defined(BBS_MSG_MODULE)
   PROCESS_PAUSE();
 #endif
 
@@ -156,7 +156,7 @@ SHELL_COMMAND(bbs_prevboard_command, "-", "- : last board", &bbs_prevboard_proce
 PROCESS_THREAD(bbs_prevboard_process, ev, data)
 {
   PROCESS_BEGIN();
-#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_MSG_MODULE)
+#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_BANK_BUILD) && !defined(BBS_MSG_MODULE)
   PROCESS_PAUSE();
 #endif
 
