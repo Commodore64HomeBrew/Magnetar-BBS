@@ -107,7 +107,12 @@ static struct timer silence_timer;
 
 TELNETD_STATE s;
 
-BBS_BUFFER buf;
+BBS_BUFFER buf = {
+  (unsigned char *)BBS_BUFFER_SCR_BASE,
+  0u,
+  0u,
+  BBS_BUFFER_SIZE
+};
 
 static struct process *bbs_stream_eof_process;
 
@@ -272,6 +277,7 @@ telwrap_commit_row_finish(unsigned char next_first_idx)
 static void
 buf_init(void)
 {
+  buf.bufmem = (unsigned char *)BBS_BUFFER_SCR_BASE;
   buf.head = 0;
   buf.used = 0;
   buf.size = BBS_BUFFER_SIZE;

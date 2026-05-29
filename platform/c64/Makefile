@@ -64,6 +64,10 @@ endif
 
 CFLAGS += --static-locals
 
+# Keep core BSS below $B000; bank overlays load at $B000-$BFFF.
+CORE_CFG = c64-bbs-core.cfg
+LDFLAGS += -C $(CORE_CFG)
+
 include $(CONTIKI)/Makefile.include
 
 $(OBJECTDIR)/bbs-shell.o: bbs-shell.c

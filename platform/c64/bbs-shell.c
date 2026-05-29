@@ -442,9 +442,7 @@ login_stats_continue(void)
   bbs_record_last_caller();
   if(bbs_bank_load(BBS_BANK_ID_UI) != 0u &&
      BBS_BANK_HDR->run_sys_stats != NULL) {
-    bbs_bank_hw_enable_for_exec();
     BBS_BANK_HDR->run_sys_stats();
-    bbs_bank_hw_disable_exec();
   } else {
     shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
   }
@@ -998,15 +996,6 @@ start_command(char *commandline, struct shell_command *child)
     return NULL;
   }
 
-  {
-    unsigned char bank_id;
-
-    bank_id = bbs_command_bank_id(commandline, command_len);
-    if(bank_id != 0u && bbs_bank_active() != 0u) {
-      bbs_bank_hw_enable_for_exec();
-    }
-  }
-
   
   /* Go through list of commands to find a match for the first word in
      the command line. */
@@ -1271,7 +1260,6 @@ PROCESS_THREAD(shell_server_process, ev, data)
     PROCESS_WAIT_EVENT();
     if(ev == PROCESS_EVENT_EXITED) {
       p = data;
-      bbs_bank_hw_disable_exec();
       if(p == front_process) {
         front_process = &shell_process;
       }

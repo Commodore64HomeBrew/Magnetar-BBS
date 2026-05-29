@@ -30,10 +30,11 @@
 /* Stream chunk size; movie UI caps speed at 10. */
 #define MAX_STREAM_SPEED        10
 
-/* Outbound queue; must exceed TCP MSS for smooth output on uIP builds. */
+/* Outbound ring lives in C64 screen RAM ($0400-$07E7, 1000 bytes). */
+#define BBS_BUFFER_SCR_BASE     0x0400u
+#define BBS_BUFFER_SCR_LAST     0x07E7u
 #ifndef BBS_BUFFER_SIZE
-/* Keep ring size equal to max post payload to avoid truncation surprises. */
-#define BBS_BUFFER_SIZE    	1500
+#define BBS_BUFFER_SIZE         (BBS_BUFFER_SCR_LAST - BBS_BUFFER_SCR_BASE + 1u)
 #endif
 
 #ifdef BBS_SERIAL_TRANSPORT
@@ -217,9 +218,9 @@ typedef struct {
 
 
 typedef struct {
-  unsigned char bufmem[BBS_BUFFER_SIZE];
-  unsigned int head; /* next byte to send (physical index) */
-  unsigned int used; /* pending outbound bytes (may wrap) */
+  unsigned char *bufmem; /* -> BBS_BUFFER_SCR_BASE (not in main BSS) */
+  unsigned int head;     /* next byte to send (physical index) */
+  unsigned int used;     /* pending outbound bytes (may wrap) */
   unsigned int size;
 } BBS_BUFFER;
 

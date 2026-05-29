@@ -7,9 +7,158 @@ extern int buf_putc_raw(unsigned char c);
 #include "bbs-file.h"
 #include "sys/clock.h"
 #include <cbm.h>
+#include <errno.h>
+#include <stdio.h>
 #include <string.h>
 
 #define BBS_BANK_LOAD_CHN  10
+
+/* Off: screen RAM is the telnet outbound ring (see BBS_BUFFER_SCR_BASE). */
+#define BBS_BANK_DEBUG  0
+
+static unsigned char
+bbs_bank_sig_ok(unsigned char bank_id)
+{
+  const unsigned char *p = (const unsigned char *)BBS_BANK_BASE;
+  unsigned char expect;
+
+  expect = (unsigned char)(0x30u + bank_id);
+  return (p[0] == 0x42u && p[1] == 0x42u && p[2] == 0x4bu && p[3] == expect) ? 1u : 0u;
+}
+
+#if BBS_BANK_DEBUG
+#define BBS_BANK_DBG_SCR_BASE  0x0400u
+#define BBS_BANK_DBG_SCR_SIZE  0x0400u
+#define BBS_BANK_DBG_SCR_COLS  40u
+
+static unsigned int bbs_bank_dbg_pos;
+
+static unsigned char
+bbs_bank_dbg_screencode(unsigned char c)
+{
+  if(c >= (unsigned char)'a' && c <= (unsigned char)'z') {
+    c = (unsigned char)(c - (unsigned char)'a' + (unsigned char)'A');
+  }
+  if(c >= (unsigned char)'A' && c <= (unsigned char)'Z') {
+    return (unsigned char)(c - (unsigned char)'A' + 1u);
+  }
+  if(c == (unsigned char)'\n' || c == (unsigned char)'\r') {
+    return 0u;
+  }
+  return c;
+}
+
+static void
+bbs_bank_dbg_clear(void)
+{
+  memset((void *)BBS_BANK_DBG_SCR_BASE, 0x20u, (size_t)BBS_BANK_DBG_SCR_SIZE);
+  bbs_bank_dbg_pos = 0u;
+}
+
+static void
+bbs_bank_dbg_newline(void)
+{
+  unsigned int row;
+
+  row = bbs_bank_dbg_pos / (unsigned int)BBS_BANK_DBG_SCR_COLS;
+  bbs_bank_dbg_pos = (row + 1u) * (unsigned int)BBS_BANK_DBG_SCR_COLS;
+  if(bbs_bank_dbg_pos >= (unsigned int)BBS_BANK_DBG_SCR_SIZE) {
+    bbs_bank_dbg_pos = 0u;
+  }
+}
+
+static void
+bbs_bank_dbg_putc(unsigned char c)
+{
+  volatile unsigned char *scr;
+  unsigned char ch;
+
+  ch = bbs_bank_dbg_screencode(c);
+  if(ch == 0u) {
+    bbs_bank_dbg_newline();
+    return;
+  }
+  if(bbs_bank_dbg_pos >= (unsigned int)BBS_BANK_DBG_SCR_SIZE) {
+    bbs_bank_dbg_pos = 0u;
+  }
+  scr = (volatile unsigned char *)(BBS_BANK_DBG_SCR_BASE + bbs_bank_dbg_pos);
+  *scr = ch;
+  ++bbs_bank_dbg_pos;
+}
+
+static void
+bbs_bank_dbg_puts(const char *msg)
+{
+  while(msg != NULL && *msg != 0) {
+    bbs_bank_dbg_putc((unsigned char)*msg);
+    ++msg;
+  }
+  bbs_bank_dbg_newline();
+}
+
+static void
+bbs_bank_dbg_sig_fail(unsigned char bank_id)
+{
+  char line[64];
+  const unsigned char *p = (const unsigned char *)BBS_BANK_BASE;
+  unsigned char expect;
+
+  expect = (unsigned char)(0x30u + bank_id);
+  sprintf(line,
+      "bank id=%u sig fail got=%02x %02x %02x %02x want=42 42 4b %02x",
+      (unsigned int)bank_id,
+      (unsigned int)p[0], (unsigned int)p[1], (unsigned int)p[2], (unsigned int)p[3],
+      (unsigned int)expect);
+  bbs_bank_dbg_puts(line);
+}
+
+static void
+bbs_bank_dbg_fail(unsigned char bank_id, unsigned char reason,
+    unsigned int total, const char *filename, unsigned char open_err)
+{
+  char line[64];
+  const bbs_bank_hdr_t *hdr;
+
+  hdr = (const bbs_bank_hdr_t *)BBS_BANK_BASE;
+
+  switch(reason) {
+  case 1:
+    sprintf(line, "bank id=%u open fail %s dev=%u err=%u",
+        (unsigned int)bank_id, filename,
+        (unsigned int)board.sys_device, (unsigned int)open_err);
+    break;
+  case 2:
+    sprintf(line, "bank id=%u read short %u need %u",
+        (unsigned int)bank_id, total, (unsigned int)sizeof(bbs_bank_hdr_t));
+    break;
+  case 3:
+    bbs_bank_dbg_sig_fail(bank_id);
+    return;
+  case 4:
+    sprintf(line, "bank id=%u init null $%04x",
+        (unsigned int)bank_id, (unsigned int)(unsigned long)hdr->init);
+    break;
+  case 5:
+    sprintf(line, "bank id=%u init returned 0", (unsigned int)bank_id);
+    break;
+  default:
+    sprintf(line, "bank id=%u fail reason=%u", (unsigned int)bank_id,
+        (unsigned int)reason);
+    break;
+  }
+  bbs_bank_dbg_puts(line);
+}
+
+static void
+bbs_bank_dbg_ok(unsigned char bank_id, unsigned int total, const char *filename)
+{
+  char line[64];
+
+  sprintf(line, "bank id=%u ok %s %u bytes",
+      (unsigned int)bank_id, filename, total);
+  bbs_bank_dbg_puts(line);
+}
+#endif /* BBS_BANK_DEBUG */
 
 static unsigned long
 bbs_shared_clock_time(void)
@@ -26,15 +175,12 @@ static unsigned char bbs_bank_cur_id;
 void
 bbs_bank_hw_enable_for_exec(void)
 {
-  if(bbs_bank_loaded != 0u && bbs_bank_cur_id != 0u) {
-    *(volatile unsigned char *)BBS_BANK_HW_REG = bbs_bank_cur_id;
-  }
+  /* SD2IEC: bank image runs from RAM at $B000. $DE00 cart map is future-only. */
 }
 
 void
 bbs_bank_hw_disable_exec(void)
 {
-  *(volatile unsigned char *)BBS_BANK_HW_REG = BBS_BANK_HW_DISABLE;
 }
 
 static const char *
@@ -99,7 +245,6 @@ bbs_bank_load(unsigned char bank_id)
   unsigned int n;
   unsigned char *dst;
   const char *filename;
-  unsigned char expect_sig;
   unsigned char had_bank;
   unsigned char prev_id;
 
@@ -109,7 +254,6 @@ bbs_bank_load(unsigned char bank_id)
   }
 
   if(bbs_bank_loaded != 0u && bbs_bank_cur_id == bank_id) {
-    bbs_bank_hw_disable_exec();
     return 1u;
   }
 
@@ -122,10 +266,21 @@ bbs_bank_load(unsigned char bank_id)
 
   bbs_shared_publish();
 
-  /* Banks live on drive 8 root beside magbbs.prg (SD2IEC: bbs-bankN.bin.prg). */
-  *(volatile unsigned char *)BBS_BANK_HW_REG = bank_id;
+#if BBS_BANK_DEBUG
+  bbs_bank_dbg_clear();
+  {
+    char line[64];
+    sprintf(line, "bank load id=%u %s dev=%u",
+        (unsigned int)bank_id, filename, (unsigned int)board.sys_device);
+    bbs_bank_dbg_puts(line);
+  }
+#endif
+
   if(cbm_open(BBS_BANK_LOAD_CHN, board.sys_device, BBS_BANK_LOAD_CHN,
       filename) != 0u) {
+#if BBS_BANK_DEBUG
+    bbs_bank_dbg_fail(bank_id, 1u, 0u, filename, _oserror);
+#endif
     goto load_failed;
   }
   dst = (unsigned char *)BBS_BANK_BASE;
@@ -141,14 +296,21 @@ bbs_bank_load(unsigned char bank_id)
   cbm_close(BBS_BANK_LOAD_CHN);
 
   if(total < sizeof(bbs_bank_hdr_t)) {
+#if BBS_BANK_DEBUG
+    bbs_bank_dbg_fail(bank_id, 2u, total, filename, 0u);
+#endif
     goto load_failed;
   }
-  expect_sig = (unsigned char)('0' + bank_id);
-  if(BBS_BANK_HDR->sig[0] != 'B' || BBS_BANK_HDR->sig[1] != 'B' ||
-      BBS_BANK_HDR->sig[2] != 'K' || BBS_BANK_HDR->sig[3] != expect_sig) {
+  if(bbs_bank_sig_ok(bank_id) == 0u) {
+#if BBS_BANK_DEBUG
+    bbs_bank_dbg_fail(bank_id, 3u, total, filename, 0u);
+#endif
     goto load_failed;
   }
   if(BBS_BANK_HDR->init == NULL) {
+#if BBS_BANK_DEBUG
+    bbs_bank_dbg_fail(bank_id, 4u, total, filename, 0u);
+#endif
     goto load_failed;
   }
 
@@ -156,16 +318,19 @@ bbs_bank_load(unsigned char bank_id)
   bbs_bank_loaded = 1u;
   bbs_bank_cur_id = bank_id;
 
-  bbs_bank_hw_enable_for_exec();
   if(BBS_BANK_HDR->init() == 0u) {
+#if BBS_BANK_DEBUG
+    bbs_bank_dbg_fail(bank_id, 5u, total, filename, 0u);
+#endif
     bbs_bank_unload();
     goto load_failed;
   }
-  bbs_bank_hw_disable_exec();
+#if BBS_BANK_DEBUG
+  bbs_bank_dbg_ok(bank_id, total, filename);
+#endif
   return 1u;
 
 load_failed:
-  bbs_bank_hw_disable_exec();
   if(had_bank != 0u && prev_id != 0u && prev_id != bank_id) {
     (void)bbs_bank_load(prev_id);
   }
@@ -176,10 +341,8 @@ void
 bbs_bank_unload(void)
 {
   if(bbs_bank_loaded != 0u && BBS_BANK_HDR->deinit != NULL) {
-    bbs_bank_hw_enable_for_exec();
     BBS_BANK_HDR->deinit();
   }
-  bbs_bank_hw_disable_exec();
   BBS_SHARED->active_bank = 0u;
   bbs_bank_loaded = 0u;
   bbs_bank_cur_id = 0u;
@@ -201,7 +364,6 @@ void
 bbs_bank_set_op(const char *cmd)
 {
   if(bbs_bank_loaded != 0u && BBS_BANK_HDR->set_op != NULL) {
-    bbs_bank_hw_enable_for_exec();
     BBS_BANK_HDR->set_op(cmd);
   }
 }
@@ -210,7 +372,6 @@ void
 bbs_bank_feed(unsigned char c)
 {
   if(bbs_bank_loaded != 0u && BBS_BANK_HDR->feed != NULL) {
-    bbs_bank_hw_enable_for_exec();
     BBS_BANK_HDR->feed(c);
   }
 }

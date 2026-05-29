@@ -4,9 +4,9 @@
 #include "bbs-defs.h"
 
 /*
- * Software bank overlay at $B000 (8K, Magic Desk style via $DE00).
- * Resident bbs_shared_data lives in core DATA (see bbs-resident.c), not BSS
- * under the bank window — publish/sync keeps globals coherent across load.
+ * Magic Desk compatible bank image at $B000 (8K, BBK1..BBK4 header).
+ * SD2IEC: load .bin from drive 8 root into RAM at $B000; no $DE00 cart map yet.
+ * Future cart: enable $DE00 (see BBS_BANK_HW_REG) before exec on hardware.
  */
 
 #define BBS_BANK_BASE       0xB000u
