@@ -36,7 +36,7 @@ bbs_bank_filename(unsigned char bank_id)
 void
 bbs_shared_publish(void)
 {
-  *(bbs_shared_t **)BBS_SHARED_ANCHOR = &bbs_shared_data;
+  *(volatile bbs_shared_t **)(BBS_SHARED_MAILBOX) = &bbs_shared_data;
 
   BBS_SHARED->sig0 = 'B';
   BBS_SHARED->sig1 = 'S';
@@ -79,6 +79,8 @@ bbs_bank_load(unsigned char bank_id)
   unsigned char *dst;
   const char *filename;
   unsigned char expect_sig;
+  unsigned char had_bank;
+  unsigned char prev_id;
 
   filename = bbs_bank_filename(bank_id);
   if(filename == NULL) {
@@ -89,6 +91,9 @@ bbs_bank_load(unsigned char bank_id)
     return 1u;
   }
 
+  had_bank = bbs_bank_loaded;
+  prev_id = bbs_bank_cur_id;
+
   if(bbs_bank_loaded != 0u) {
     bbs_bank_unload();
   }
@@ -97,7 +102,7 @@ bbs_bank_load(unsigned char bank_id)
 
   fd = cfs_open(filename, CFS_READ);
   if(fd < 0) {
-    return 0u;
+    goto load_failed;
   }
 
   dst = (unsigned char *)BBS_BANK_BASE;
@@ -112,15 +117,15 @@ bbs_bank_load(unsigned char bank_id)
   cfs_close(fd);
 
   if(total < sizeof(bbs_bank_hdr_t)) {
-    return 0u;
+    goto load_failed;
   }
   expect_sig = (unsigned char)('0' + bank_id);
   if(BBS_BANK_HDR->sig[0] != 'B' || BBS_BANK_HDR->sig[1] != 'B' ||
       BBS_BANK_HDR->sig[2] != 'K' || BBS_BANK_HDR->sig[3] != expect_sig) {
-    return 0u;
+    goto load_failed;
   }
   if(BBS_BANK_HDR->init == NULL) {
-    return 0u;
+    goto load_failed;
   }
 
   *(volatile unsigned char *)BBS_BANK_HW_REG = bank_id;
@@ -130,9 +135,15 @@ bbs_bank_load(unsigned char bank_id)
 
   if(BBS_BANK_HDR->init() == 0u) {
     bbs_bank_unload();
-    return 0u;
+    goto load_failed;
   }
   return 1u;
+
+load_failed:
+  if(had_bank != 0u && prev_id != 0u && prev_id != bank_id) {
+    (void)bbs_bank_load(prev_id);
+  }
+  return 0u;
 }
 
 void

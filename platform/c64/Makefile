@@ -72,7 +72,11 @@ include $(CONTIKI)/Makefile.include
 
 $(OBJECTDIR)/bbs-shell.o: bbs-shell.c
 	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -o $@ $<
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -Os -o $@ $<
+
+$(OBJECTDIR)/bbs-telnetd.o: bbs-telnetd.c
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -Os -o $@ $<
 
 ifeq ($(strip $(BBS_HEADLESS)),1)
 CONTIKI_HEADLESS_FILTER := \

@@ -68,6 +68,7 @@ typedef struct bbs_xfer_state {
   unsigned int rx_size;
   char cwd[BBS_XFER_PATH_LEN];
   const char *op_line;
+  char op_copy[TELNETD_CONF_LINELEN + 1];
   char pathbuf[BBS_FILE_PATH_BUFLEN];
   char line[40];
   char outc;
@@ -126,7 +127,13 @@ bbs_xfer_set_op(const char *cmd)
   if(xfer == NULL || cmd == NULL) {
     return;
   }
+#ifdef BBS_BANK_BUILD
+  strncpy(xfer->op_copy, cmd, TELNETD_CONF_LINELEN);
+  xfer->op_copy[TELNETD_CONF_LINELEN] = '\0';
+  xfer->op_line = xfer->op_copy;
+#else
   xfer->op_line = cmd;
+#endif
 }
 
 void

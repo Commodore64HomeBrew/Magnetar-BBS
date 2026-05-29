@@ -44,7 +44,7 @@ typedef struct {
   unsigned char last_space_at; /* last word-break in buf (space/tab); 255=none */
   unsigned char connected;
   unsigned long numsent;
-  unsigned short state;
+  unsigned char state;
 } TELNETD_STATE;
 
 PROCESS_NAME(telnetd_process);

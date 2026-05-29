@@ -26,9 +26,7 @@
 #endif
 #include "bbs-file.h"
 #include "bbs-telnetd.h"
-#include "cfs/cfs.h"
 //#include <em.h>
-#include <ctype.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,7 +60,6 @@ unsigned short set_step=0;
 static unsigned char bbs_xfer_prepare_command(const char *cmd);
 static unsigned char bbs_command_bank_id(const char *cmd, int len);
 static unsigned char bbs_bank_route_command(const char *cmd, int len);
-static unsigned char bbs_command_targets_xfer_module(const char *cmd, int len);
 #endif
 
 /*---------------------------------------------------------------------------*/
@@ -114,7 +111,7 @@ void bbs_defaults(void)
   bbs_status.status=STATUS_UNLOCK;
   bbs_status.login=0;
   bbs_status.board_id=1;
-  sprintf(bbs_status.prompt, "");
+  bbs_status.prompt[0] = '\0';
 
 }
 
@@ -360,8 +357,6 @@ int bbs_get_user(char *data)
 		log_message("\x96user not found: ", bbs_user.user_name);
 		return 2;
 	}
-
-	return 0;
 }
 
 /*---------------------------------------------------------------------------*/
@@ -404,7 +399,6 @@ int bbs_save_user()
 void bbs_login()
 {
 
-	unsigned short fsize=0;
 	unsigned short siRet=0;
 	unsigned char file[25];
 	unsigned char message[80];
@@ -414,9 +408,6 @@ void bbs_login()
  	//**********************************************************************
 	process_exit(&bbs_timer_process);
 	bbs_status.status=STATUS_LOCK;
-
-	sprintf(file, "s-%s", bbs_user.user_name);
-	//log_message("[debug] user stats file: ", file);
 
 	sprintf(file, "%s:s-%s", board.userstats_prefix, bbs_user.user_name);
 
@@ -460,6 +451,12 @@ void bbs_login()
 
 	shell_output_str(NULL, "\r\n\x05? \x9fto list commands", "");
 	shell_output_str(NULL, "\x05s \x9eselect msg board\r\n", "");
+
+#ifndef BBS_SERIAL_TRANSPORT
+	if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
+		shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
+	}
+#endif
 
 	//Display the sub banner:
 	bbs_sub_banner_core();
@@ -625,9 +622,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             break;
           }
           case STATUS_STATS: {
-            if(strlen(input->data1)>0) {
-            	bbs_login();
-            }
+            bbs_login();
             break;
           }
           case STATUS_LOCK:
@@ -906,12 +901,6 @@ PROCESS_THREAD(settime_process, ev, data)
 
 #ifndef BBS_SERIAL_TRANSPORT
 static unsigned char
-bbs_command_targets_xfer_module(const char *cmd, int len)
-{
-  return bbs_command_bank_id(cmd, len) == BBS_BANK_ID_XFER;
-}
-
-static unsigned char
 bbs_command_bank_id(const char *cmd, int len)
 {
   if(len == 1) {
@@ -935,10 +924,7 @@ bbs_command_bank_id(const char *cmd, int len)
       break;
     }
   }
-  if(len == 2 && cmd[0] == 'c' && cmd[1] == 'd') {
-    return BBS_BANK_ID_XFER;
-  }
-  if(len == 2 && cmd[0] == 'm' && cmd[1] == 'd') {
+  if(len == 2 && cmd[1] == 'd' && (cmd[0] == 'c' || cmd[0] == 'm')) {
     return BBS_BANK_ID_XFER;
   }
   return 0u;
@@ -1073,7 +1059,7 @@ start_command(char *commandline, struct shell_command *child)
     /*    printf("shell: start_command starting '%s'\n", c->process->name);*/
     /* Start a new process for the command. */
 #ifndef BBS_SERIAL_TRANSPORT
-    if(bbs_command_targets_xfer_module(commandline, command_len) != 0u) {
+    if(bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_XFER) {
       if(bbs_xfer_prepare_command(commandline) == 0u) {
         command_kill(child);
         return NULL;
@@ -1312,10 +1298,8 @@ PROCESS_THREAD(shell_server_process, ev, data)
 {
   struct process *p;
   struct shell_command *c;
-  static struct etimer session_timer;
   PROCESS_BEGIN();
 
-  etimer_set(&session_timer, CLOCK_SECOND * 10);
   while(1) {
     PROCESS_WAIT_EVENT();
     if(ev == PROCESS_EVENT_EXITED) {
@@ -1323,22 +1307,15 @@ PROCESS_THREAD(shell_server_process, ev, data)
       if(p == front_process) {
         front_process = &shell_process;
       }
-      /*      printf("process exited '%s' (front '%s')\n", p->name,
-	      front_process->name);*/
       for(c = list_head(commands);
 	  c != NULL && c->process != p;
 	  c = c->next);
       while(c != NULL) {
 	if(c->child != NULL && c->child->process != NULL) {
-	  /*	  printf("Killing '%s'\n", c->process->name);*/
 	  input_to_child_command(c->child, "", 0, "", 0);
-	  /*	  process_exit(c->process);*/
 	}
 	c = c->child;
       }
-    } else if(ev == PROCESS_EVENT_TIMER) {
-      etimer_reset(&session_timer);
-      //shell_set_time(shell_time());
     }
   }
   

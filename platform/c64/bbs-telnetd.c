@@ -66,38 +66,36 @@ PROCESS(telnetd_process, "Telnet server");
 
 #ifdef TELNETD_CONF_REJECT
 extern char telnetd_reject_text[];
-#else
-static char telnetd_reject_text[] =
-            "Too many connections";
 #endif
-
 
 #define TELNET_IAC   255
 #define TELNET_WILL  251
 #define TELNET_WONT  252
 #define TELNET_DO    253
 #define TELNET_DONT  254
-uint8_t cr=0x0d;
-uint8_t dl=0x14;
-uint8_t col_num=0;
-unsigned char sd_c[MAX_STREAM_SPEED];
-unsigned int sd_len;
 
-/* Echo mode 1: one terminal column for wrap/DEL sync (issue 3). */
-#define TELNETD_COL1_CELL(c) \
-	(((unsigned char)(c) > 0x1Fu && (unsigned char)(c) < 0x80u) \
-	 || (unsigned char)(c) > 0x9Fu)
-#define TELNETD_COL1_BUMP_AFTER_ECHO(c) do { \
-	uint8_t col1c = (c); \
-	if(col1c == ISO_cr || col1c == ISO_nl) { \
-		col_num = 0; \
-	} else if(BBS_PETSCII_ATTR0(col1c)) { \
-	} else if(col1c == 0x09u) { \
-		if(col_num < bbs_status.width) { ++col_num; } \
-	} else if(TELNETD_COL1_CELL(col1c)) { \
-		++col_num; \
-	} \
-} while(0)
+static unsigned char col_num;
+static unsigned char sd_c[MAX_STREAM_SPEED];
+static unsigned int sd_len;
+
+static unsigned char col1_cell(unsigned char c)
+{
+  return (unsigned char)((c > 0x1Fu && c < 0x80u) || c > 0x9Fu);
+}
+
+static void col1_bump(unsigned char c)
+{
+  if(c == ISO_cr || c == ISO_nl) {
+    col_num = 0;
+  } else if(BBS_PETSCII_ATTR0(c)) {
+  } else if(c == 0x09u) {
+    if(col_num < bbs_status.width) {
+      ++col_num;
+    }
+  } else if(col1_cell(c)) {
+    ++col_num;
+  }
+}
 
 #define TELNETD_LAST_SPACE_NONE 255u
 
@@ -165,18 +163,19 @@ static void telnetd_serial_tx(void);
 static void
 telnetd_rescan_last_space(void)
 {
-	unsigned char j;
+	unsigned short wj;
 
-	s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
-	if(s.bufptr == 0) {
+	if(s.bufptr == 0u) {
+		s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
 		return;
 	}
-	for(j = s.bufptr; j > 0u; ) {
-		--j;
-		if(BWS_WORD_BREAK(s.buf[(int)j]) != 0u) {
-			s.last_space_at = j;
-			break;
-		}
+	wj = bws_find_break_back(s.buf, 0u, (unsigned short)(s.bufptr - 1u),
+	    BWS_FIND_MODE_TELNET);
+	if(wj < (unsigned short)s.bufptr &&
+	    BWS_WORD_BREAK(s.buf[(int)wj]) != 0u) {
+		s.last_space_at = (unsigned char)wj;
+	} else {
+		s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;
 	}
 }
 
@@ -209,7 +208,7 @@ telwrap_ttl_trimmed(unsigned short rs, unsigned short ex, unsigned char wmax)
 			if(sim < wmax) {
 				++sim;
 			}
-		} else if(TELNETD_COL1_CELL(ch)) {
+		} else if(col1_cell(ch)) {
 			++sim;
 		}
 	}
@@ -226,7 +225,7 @@ telwrap_echo_dls(unsigned char hi, unsigned char lo)
 	unsigned char k;
 
 	for(k = hi; k > lo; --k) {
-		(void)buf_putc_raw(dl);
+		(void)buf_putc_raw(PETSCII_DEL);
 	}
 }
 
@@ -271,8 +270,6 @@ telwrap_fixup_delete(unsigned char del_idx)
 static void
 telwrap_commit_row_finish(unsigned char next_first_idx)
 {
-	if(bbs_status.echo != 1u)
-		return;
 	if(telwrap_tr + 1u < TELWRAP_MAX_ROWS) {
 		++telwrap_tr;
 		telwrap_bp[telwrap_tr] = next_first_idx;
@@ -829,8 +826,7 @@ PROCESS_THREAD(telnetd_process, ev, data)
 static void
 get_char(uint8_t c)
 {
-
-	short i,n;
+	unsigned char i, n;
 	//PRINTF("telnetd: get_char '%c' %d %d\n", c, c, s.bufptr);
 
 	if(c == 0) {
@@ -882,12 +878,12 @@ get_char(uint8_t c)
 		if(bbs_status.echo == 2u) {
 			if(col_num >= (unsigned char)bbs_status.width && c != ISO_cr &&
 			    c != ISO_nl && !BBS_PETSCII_ATTR0((unsigned char)c) &&
-			    (TELNETD_COL1_CELL((unsigned char)c) || (unsigned char)c == 0x09u)) {
-				(void)buf_putc_raw(cr);
+			    (col1_cell((unsigned char)c) || (unsigned char)c == 0x09u)) {
+				(void)buf_putc_raw(ISO_cr);
 				col_num = 0;
 			}
 			(void)buf_putc_raw(c);
-			TELNETD_COL1_BUMP_AFTER_ECHO(c);
+			col1_bump(c);
 		} else if(col_num>=bbs_status.width){
 
 			if(c == ISO_cr || c == ISO_nl) {
@@ -898,23 +894,23 @@ get_char(uint8_t c)
 				if(BWS_WORD_BREAK(c)) {
 					telwrap_commit_row_finish((unsigned char)s.bufptr);
 					(void)buf_putc_raw(c);
-					(void)buf_putc_raw(cr);
+					(void)buf_putc_raw(ISO_cr);
 					col_num = 0;
 				} else {
 
 					if((int)s.bufptr < 1) {
 						telwrap_commit_row_finish((unsigned char)s.bufptr);
-						(void)buf_putc_raw(cr);
+						(void)buf_putc_raw(ISO_cr);
 						col_num = 0;
 						(void)buf_putc_raw(c);
-						TELNETD_COL1_BUMP_AFTER_ECHO(c);
+						col1_bump(c);
 					} else {
 
 					if(s.last_space_at != (unsigned char)TELNETD_LAST_SPACE_NONE
 					    && s.last_space_at < s.bufptr
 					    && BWS_WORD_BREAK(s.buf[(int)s.last_space_at])) {
 						telwrap_echo_dls(s.bufptr - 1u, s.last_space_at);
-						i = (int)s.last_space_at + 1;
+						i = s.last_space_at + 1u;
 					} else {
 					unsigned short wj;
 
@@ -922,26 +918,26 @@ get_char(uint8_t c)
 					    s.buf, 0u, (unsigned short)(s.bufptr - 1u), BWS_FIND_MODE_TELNET);
 					telwrap_echo_dls(s.bufptr - 1u, (unsigned char)wj);
 					if(BWS_WORD_BREAK(s.buf[(int)wj]) != 0u) {
-						i = (short)wj + 1;
+						i = (unsigned char)wj + 1u;
 					} else {
-						i = 0;
+						i = 0u;
 					}
 					}
-					if(i == 0 && (int)s.bufptr > 0) {
-						(void)buf_putc_raw(dl);
+					if(i == 0u && s.bufptr > 0u) {
+						(void)buf_putc_raw(PETSCII_DEL);
 					}
 
-					telwrap_commit_row_finish((unsigned char)i);
+					telwrap_commit_row_finish(i);
 
-					(void)buf_putc_raw(cr);
-					for(n = i; n < (int)s.bufptr; ++n) {
-						(void)buf_putc_raw((unsigned char)s.buf[n]);
+					(void)buf_putc_raw(ISO_cr);
+					for(n = i; n < s.bufptr; ++n) {
+						(void)buf_putc_raw((unsigned char)s.buf[(int)n]);
 					}
-					col_num = (int)s.bufptr - i;
+					col_num = (unsigned char)(s.bufptr - i);
 					(void)buf_putc_raw(c);
 					if(c == ISO_cr || c == ISO_nl) {
 						col_num = 0;
-					} else if(TELNETD_COL1_CELL((unsigned char)c) || c == 0x09u) {
+					} else if(col1_cell((unsigned char)c) || c == 0x09u) {
 						++col_num;
 					}
 					}
@@ -950,7 +946,7 @@ get_char(uint8_t c)
 		}
 		else{	
       (void)buf_putc_raw(c);
-      TELNETD_COL1_BUMP_AFTER_ECHO(c);
+      col1_bump(c);
 		}
 	}
 
@@ -975,11 +971,7 @@ get_char(uint8_t c)
 			col_num = 0;
 		  }
 		}
-		else if(c == ISO_cr){
-			s.buf[(int)s.bufptr] = ISO_nl;
-			++s.bufptr;
-		}
-		else if(c == ISO_nl) {
+		else if(c == ISO_cr || c == ISO_nl) {
 			s.buf[(int)s.bufptr] = ISO_nl;
 			++s.bufptr;
 		}
@@ -1001,13 +993,15 @@ get_char(uint8_t c)
 static void
 sendopt(uint8_t option, uint8_t value)
 {
-  char line[4];
+  char line[3];
+
   line[0] = (char)TELNET_IAC;
   line[1] = option;
   line[2] = value;
-  line[3] = 0;
-  if(bbs_status.encoding==1){ascii_to_petscii(line, 4);}
-  buf_append(line, 4);
+  if(bbs_status.encoding == 1) {
+    ascii_to_petscii(line, 3);
+  }
+  buf_append(line, 3);
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -1062,23 +1056,12 @@ telnetd_feed(const unsigned char *ptr, unsigned int len)
       }
       break;
     case STATE_WILL:
-      /* Reply with a DONT */
-      sendopt(TELNET_DONT, c);
-      s.state = STATE_NORMAL;
-      break;
-      
     case STATE_WONT:
-      /* Reply with a DONT */
       sendopt(TELNET_DONT, c);
       s.state = STATE_NORMAL;
       break;
     case STATE_DO:
-      /* Reply with a WONT */
-      sendopt(TELNET_WONT, c);
-      s.state = STATE_NORMAL;
-      break;
     case STATE_DONT:
-      /* Reply with a WONT */
       sendopt(TELNET_WONT, c);
       s.state = STATE_NORMAL;
       break;
@@ -1101,7 +1084,6 @@ telnetd_feed(const unsigned char *ptr, unsigned int len)
 static unsigned char
 reject_non_telnet(const unsigned char *p, unsigned int len)
 {
-  /* Common probe signatures only: TLS, SSH, and primary HTTP verbs. */
   static const unsigned char rejtbl[] = {
     2, 22, 3,
     4, 'S', 'S', 'H', '-',

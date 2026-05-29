@@ -53,12 +53,16 @@ typedef struct bbs_shared_s {
   void (*bbs_path_sys_at)(char *out, const char *suffix);
 } bbs_shared_t;
 
-#define BBS_SHARED_ANCHOR  0x00FBu
+/*
+ * Mailbox word at start of RESIDENT segment (c64-bbs-core.cfg @ $A986).
+ * Not $0C00: that address lies inside the linked MAIN image on this build.
+ */
+#define BBS_SHARED_MAILBOX  0xA986u
 
 extern bbs_shared_t bbs_shared_data;
 
 #ifdef BBS_BANK_BUILD
-#define BBS_SHARED    (*(bbs_shared_t **)(BBS_SHARED_ANCHOR))
+#define BBS_SHARED    (*(bbs_shared_t **)(BBS_SHARED_MAILBOX))
 #else
 #define BBS_SHARED    (&bbs_shared_data)
 #endif

@@ -17,10 +17,10 @@
 #ifdef BBS_BANK_BUILD
 #include "bbs-bank-macros.h"
 #include "bbs-fmt.h"
-#endif
-
+#else
 #include <stdio.h>
 #include <stdlib.h>
+#endif
 #include <string.h>
 
 #if !defined(BBS_MSG_MODULE) && !defined(BBS_BANK_BUILD)
@@ -36,10 +36,17 @@ void bbs_sub_banner(void)
   unsigned char message[32];
   unsigned char file[12];
 
-  sprintf(file, "%s%d",BBS_PREFIX_SUB,bbs_status.board_id);
-  bbs_banner(board.sys_prefix, file, bbs_status.encoding_suffix, board.sys_device,0);
+#ifdef BBS_BANK_BUILD
+  bbs_fmt_sub_file((char *)file, bbs_status.board_id);
+  bbs_banner(board.sys_prefix, file, bbs_status.encoding_suffix, board.sys_device, 0);
+  bbs_fmt_petscii_name_ln((char *)message,
+      (const char *)board.sub_names[bbs_status.board_id]);
+#else
+  sprintf(file, "%s%d", BBS_PREFIX_SUB, bbs_status.board_id);
+  bbs_banner(board.sys_prefix, file, bbs_status.encoding_suffix, board.sys_device, 0);
   sprintf(message, "\x05%s\n\r", board.sub_names[bbs_status.board_id]);
-  shell_output_str(NULL, message, "");
+#endif
+  shell_output_str(NULL, (char *)message, "");
 }
 
 
@@ -50,6 +57,7 @@ PROCESS_THREAD(bbs_setboard_process, ev, data)
 {
 
   struct shell_input *input;
+  const char *inline_arg;
   //char szBuff[BBS_LINE_WIDTH];
   unsigned short num;
   unsigned char message[40];
@@ -57,19 +65,43 @@ PROCESS_THREAD(bbs_setboard_process, ev, data)
 
   PROCESS_BEGIN();
 
+  inline_arg = (const char *)data;
+  if(inline_arg != NULL && inline_arg[0] != '\0') {
+#ifdef BBS_BANK_BUILD
+    num = bbs_parse_u16(inline_arg);
+#else
+    num = (unsigned short)atoi(inline_arg);
+#endif
+    if(num > 0u && num <= board.max_boards) {
+      bbs_status.board_id = num;
+      set_prompt();
+      bbs_sub_banner();
+      PROCESS_EXIT();
+    }
+  }
+
   bbs_banner(board.sys_prefix, BBS_BANNER_SUBS, bbs_status.encoding_suffix, board.sys_device, 0);
   
   shell_output_str(NULL,"\n\r","");
 
-  for (num=1; num<=BBS_MAX_BOARDS;num++){
-    sprintf(message, "\x05%d:\x9e%s\x1c-\x05%d", num, board.sub_names[num], bbs_config.msg_id[num] - bbs_usrstats.current_msg[num]);
-    shell_output_str(NULL,"", message);
+  for(num = 1; num <= BBS_MAX_BOARDS; num++) {
+#ifdef BBS_BANK_BUILD
+    bbs_fmt_board_list_line((char *)message, (unsigned char)num,
+        (const char *)board.sub_names[num],
+        (unsigned short)(bbs_config.msg_id[num] - bbs_usrstats.current_msg[num]));
+#else
+    sprintf(message, "\x05%d:\x9e%s\x1c-\x05%d", num, board.sub_names[num],
+        bbs_config.msg_id[num] - bbs_usrstats.current_msg[num]);
+#endif
+    shell_output_str(NULL, "", (char *)message);
   }
 
-
-  //shell_output_str(NULL,"", PETSCII_WHITE);
+#ifdef BBS_BANK_BUILD
+  bbs_fmt_board_select_prompt((char *)message, board.max_boards);
+#else
   sprintf(message, "\x05\n\rselect board (1-%d):", board.max_boards);
-  shell_prompt(message);
+#endif
+  shell_prompt((char *)message);
 
   PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
   input = data;

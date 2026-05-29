@@ -66,6 +66,7 @@ PROCESS_THREAD(bbs_read_process, ev, data)
 {
 
   struct shell_input *input;
+  const char *inline_arg;
   char message[40];
   unsigned short num;
 
@@ -73,7 +74,25 @@ PROCESS_THREAD(bbs_read_process, ev, data)
 
   shell_output_str(NULL,PETSCII_LOWER, PETSCII_WHITE);
 
+  inline_arg = (const char *)data;
+  if(inline_arg != NULL && inline_arg[0] != '\0') {
+#ifdef BBS_BANK_BUILD
+    num = bbs_parse_u16(inline_arg);
+#else
+    num = (unsigned short)atoi(inline_arg);
+#endif
+    if(num > 0u && num <= bbs_config.msg_id[bbs_status.board_id]) {
+      bbs_usrstats.current_msg[bbs_status.board_id] = num;
+      read_msg(num);
+      PROCESS_EXIT();
+    }
+  }
+
+#ifdef BBS_BANK_BUILD
+  bbs_fmt_read_select_prompt(message, bbs_config.msg_id[bbs_status.board_id]);
+#else
   sprintf(message, "\n\rselect msg (1-%d): ", bbs_config.msg_id[bbs_status.board_id]);
+#endif
   shell_prompt(message);
 
 
@@ -82,11 +101,11 @@ PROCESS_THREAD(bbs_read_process, ev, data)
 #ifdef BBS_BANK_BUILD
   num = bbs_parse_u16(input->data1);
 #else
-  num = atoi(input->data1);
+  num = (unsigned short)atoi(input->data1);
 #endif
-  bbs_usrstats.current_msg[bbs_status.board_id] = num;
 
-  if(num>0 && num <= bbs_config.msg_id[bbs_status.board_id]){
+  if(num > 0u && num <= bbs_config.msg_id[bbs_status.board_id]) {
+    bbs_usrstats.current_msg[bbs_status.board_id] = num;
     read_msg(num);
   }
 
