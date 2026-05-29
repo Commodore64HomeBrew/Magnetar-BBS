@@ -719,6 +719,7 @@ PROCESS_THREAD(movie_process, ev, data)
       bordercolor(2);
       poke(0xd011, peek(0xd011) | 0x10);
     } else {
+    bbs_transport_flush_outbound();
     bbs_stream_set_eof_process(&movie_process);
     bbs_status.status = STATUS_STREAM;
     telnetd_kick_stream();

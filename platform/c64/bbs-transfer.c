@@ -61,11 +61,14 @@ extern BBS_BUFFER buf;
 #define XFER_CMD  15u
 #define XFER_WAIT (CLOCK_SECOND * 3)
 
+#define BBS_XFER_RX_SIZE  128u
+
 #if defined(BBS_BANK_BUILD)
 typedef struct bbs_xfer_state {
   unsigned int rx_head, rx_tail;
   unsigned char *rx_base;
   unsigned int rx_size;
+  unsigned char rx_stash[BBS_XFER_RX_SIZE];
   char cwd[BBS_XFER_PATH_LEN];
   const char *op_line;
   char op_copy[TELNETD_CONF_LINELEN + 1];
@@ -78,6 +81,7 @@ typedef struct bbs_xfer_state {
   unsigned int rx_head, rx_tail;
   unsigned char *rx_base;
   unsigned int rx_size;
+  unsigned char rx_stash[BBS_XFER_RX_SIZE];
   char cwd[BBS_XFER_PATH_LEN];
   const char *op_line;
   char pathbuf[BBS_FILE_PATH_BUFLEN];
@@ -192,10 +196,9 @@ bbs_xmodem_io_begin(void)
   if(xfer == NULL) {
     return;
   }
-  xfer->rx_base = buf.bufmem;
-  xfer->rx_size = buf.size;
-  buf.used = 0u;
-  buf.head = 0u;
+  /* Screen-RAM ring is outbound-only; XMODEM RX uses a private stash. */
+  xfer->rx_base = xfer->rx_stash;
+  xfer->rx_size = (unsigned int)sizeof(xfer->rx_stash);
   xfer->rx_head = xfer->rx_tail = 0u;
   bbs_status.status = STATUS_XFER;
   xfer_flush_rx();
@@ -315,15 +318,28 @@ xfer_do_send(const char *path)
 }
 
 static void
+xfer_flush_outbound(void)
+{
+  clock_time_t t0;
+
+  t0 = clock_time();
+  while(buf.used != 0u &&
+        (clock_time_t)(clock_time() - t0) < (clock_time_t)(CLOCK_SECOND * 8u)) {
+    bbs_transport_poll();
+  }
+}
+
+static void
 xfer_do_recv(const char *path)
 {
   unsigned char r;
 
+  shell_output_str(NULL, "\n\rstart upload\r\n", "");
+  xfer_flush_outbound();
   if(cbm_open(XFER_CHN, board.transfer_device, CBM_WRITE, path) != 0) {
     shell_output_str(NULL, "\n\rfile create failed\n\r", "");
     return;
   }
-  shell_output_str(NULL, "\n\rXMODEM recv - send file (CRC)\n\r", "");
   bbs_xmodem_io_begin();
   r = bbs_xmodem_recv();
   cbm_close(XFER_CHN);
@@ -432,7 +448,7 @@ xfer_bank_md(const char *path)
 #endif /* BBS_BANK_BUILD */
 
 static unsigned char
-xfer_dir_is_entry(const char *line, unsigned char len)
+xfer_line_is_dir(const char *line, unsigned char len)
 {
   unsigned char i;
 
@@ -441,13 +457,13 @@ xfer_dir_is_entry(const char *line, unsigned char len)
   }
   for(i = 0u; i + 3u < len; ++i) {
     if(line[i] == 'D' && line[i + 1] == 'I' && line[i + 2] == 'R') {
-      return 0u;
+      return 1u;
     }
     if(line[i] == '<' && line[i + 1] == ' ' && line[i + 2] == 'D') {
-      return 0u;
+      return 1u;
     }
   }
-  return 1u;
+  return 0u;
 }
 
 static void
@@ -482,7 +498,7 @@ xfer_list_print(void)
     if(c == 0x0du || c == 0x0au) {
       if(li > 0u) {
         s->line[li] = 0;
-        if(in_q == 2u && xfer_dir_is_entry(s->line, li) != 0u) {
+        if(in_q == 2u) {
           i = 0u;
           while(s->line[i] != '"' && s->line[i] != 0) {
             ++i;
@@ -490,8 +506,11 @@ xfer_list_print(void)
           if(s->line[i] == '"') {
             j = 0u;
             ++i;
-            while(s->line[i] != '"' && s->line[i] != 0 && j < 16u) {
+            while(s->line[i] != '"' && s->line[i] != 0 && j < 15u) {
               name[j++] = s->line[i++];
+            }
+            if(j > 0u && xfer_line_is_dir(s->line, li) != 0u) {
+              name[j++] = '/';
             }
             name[j] = 0;
             if(j > 0u) {
@@ -512,7 +531,7 @@ xfer_list_print(void)
   }
   cbm_close(XFER_CHN);
   if(listed == 0u) {
-    shell_output_str(NULL, " (no files)\n\r", "");
+    shell_output_str(NULL, " (empty)\n\r", "");
   }
 }
 

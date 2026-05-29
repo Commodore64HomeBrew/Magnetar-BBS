@@ -311,6 +311,10 @@ buf_ack_sent(unsigned int n)
   }
   buf.head = (buf.head + n) % buf.size;
   buf.used -= n;
+  if(buf.used == 0u && bbs_status.status != STATUS_STREAM &&
+      bbs_status.status != STATUS_XFER) {
+    log_message("\x93", "");
+  }
 }
 
 /*---------------------------------------------------------------------------*/
@@ -455,6 +459,26 @@ bbs_transport_poll(void)
   telnetd_serial_poll_io();
 #else
   process_run();
+#endif
+}
+
+void
+bbs_transport_flush_outbound(void)
+{
+#ifdef BBS_SERIAL_TRANSPORT
+  bbs_serial_flush_outbound();
+#else
+  clock_time_t t0;
+
+  if(primary_conn == NULL) {
+    return;
+  }
+  t0 = clock_time();
+  while(buf.used != 0u &&
+        (clock_time_t)(clock_time() - t0) < (clock_time_t)(CLOCK_SECOND * 8u)) {
+    tcpip_poll_tcp(primary_conn);
+    process_run();
+  }
 #endif
 }
 /*---------------------------------------------------------------------------*/
@@ -1272,24 +1296,28 @@ telnetd_appcall(void *ts)
         uip_poll()) {
       if(bbs_status.status == STATUS_STREAM){
 
-	//File streaming code
+	/* One chunk in flight: do not cbm_read until the prior uip_send ACKs. */
 	if(uip_rexmit() != 0) {
 	  if(s.numsent > 0u) {
 	    telnetd_tcp_stream_unacked = 1u;
-	    uip_send(&sd_c, (int)s.numsent);
+	    memcpy(uip_appdata, sd_c, (int)s.numsent);
+	    uip_send(uip_appdata, (int)s.numsent);
 	  }
-	} else {
+	} else if(telnetd_tcp_stream_unacked == 0u) {
 	  int sdr;
 
-	  sdr = cbm_read(10, &sd_c, bbs_status.speed);
+	  sdr = cbm_read(10, &sd_c, (int)bbs_status.speed);
 	  if(sdr > 0) {
+	    if(sdr > (int)MAX_STREAM_SPEED) {
+	      sdr = (int)MAX_STREAM_SPEED;
+	    }
 	    sd_len = (unsigned int)sdr;
 	    telnetd_tcp_stream_unacked = 1u;
-	    uip_send(&sd_c, sdr);
+	    memcpy(uip_appdata, sd_c, sdr);
+	    uip_send(uip_appdata, sdr);
 	    s.numsent = sd_len;
 	  } else {
 	    bbs_notice_stream_eof();
-	    /* uip_send(&cr,1); */
 	  }
 	}
       }
