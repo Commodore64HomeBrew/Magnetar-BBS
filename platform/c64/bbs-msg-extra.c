@@ -1,34 +1,29 @@
+#ifndef BBS_SERIAL_TRANSPORT
+#include "bbs-resident.h"
+#endif
 #include "bbs-shell.h"
 #include "bbs-defs.h"
-#include "bbs-msg-bind.h"
 #include "bbs-msg-extra.h"
+#include "bbs-fmt.h"
+#include "bbs-telnetd.h"
+#ifdef BBS_SERIAL_TRANSPORT
+extern BBS_BOARD_REC board;
+extern BBS_CONFIG_REC bbs_config;
+extern BBS_STATUS_REC bbs_status;
+extern BBS_USER_REC bbs_user;
+extern BBS_USER_STATS bbs_usrstats;
+extern BBS_SYSTEM_STATS bbs_sysstats;
+#endif
+extern BBS_BUFFER buf;
 
-/* Intentionally avoid stdio/printf in module to save heap+CODE. */
-
-static void msg_user_stats(void);
-static void msg_system_stats(void);
-static void msg_info(void);
-
-static void u16_to_dec(unsigned short v, unsigned char *out);
-
-unsigned char
-bbs_msg_extra_bind(const bbs_module_ctx_t *ctx)
-{
-  if(ctx == NULL || ctx->bbsm_msg_set_handlers == NULL) {
-    return 0u;
-  }
-  ctx->bbsm_msg_set_handlers(msg_system_stats, msg_user_stats, msg_info);
-  return 1u;
-}
-
-static void
-msg_info(void)
+void
+bbs_msg_info(void)
 {
   bbs_banner(board.sys_prefix, BBS_BANNER_INFO, bbs_status.encoding_suffix, board.sys_device, 0);
 }
 
-static void
-msg_user_stats(void)
+void
+bbs_msg_user_stats(void)
 {
   unsigned char nbuf[6];
   unsigned char message[32];
@@ -36,17 +31,17 @@ msg_user_stats(void)
   shell_output_str(NULL, "\r\n\x9estats for \x05", bbs_user.user_name);
 
   shell_output_str(NULL, "\r\n\x9eyour msgs:\x05 ", "");
-  u16_to_dec(bbs_usrstats.num_msgs, nbuf);
+  bbs_u16_to_dec(bbs_usrstats.num_msgs, nbuf);
   shell_output_str(NULL, (char *)nbuf, "");
 
   shell_output_str(NULL, "\x9eyour calls:\x05 ", "");
-  u16_to_dec(bbs_usrstats.num_calls, nbuf);
+  bbs_u16_to_dec(bbs_usrstats.num_calls, nbuf);
   shell_output_str(NULL, (char *)nbuf, "");
   (void)message;
 }
 
-static void
-msg_system_stats(void)
+void
+bbs_msg_system_stats(void)
 {
   unsigned short total_msgs;
   unsigned char message[40];
@@ -135,32 +130,7 @@ stats_chart_done:
   }
 
   shell_output_str(NULL, "\r\n\x9etotal msgs:\x05 ", "");
-  u16_to_dec(total_msgs, message);
+  bbs_u16_to_dec(total_msgs, message);
   shell_output_str(NULL, (char *)message, "");
-}
-
-static void
-u16_to_dec(unsigned short v, unsigned char *out)
-{
-  static const unsigned short pow10[5] = { 10000u, 1000u, 100u, 10u, 1u };
-  unsigned char i;
-  unsigned char started;
-
-  if(out == NULL) return;
-
-  started = 0u;
-  for(i = 0u; i < 5u; ++i) {
-    unsigned char digit = 0u;
-    unsigned short p = pow10[i];
-    while(v >= p) {
-      v = (unsigned short)(v - p);
-      ++digit;
-    }
-    if(digit != 0u || started != 0u || i == 4u) {
-      *out++ = (unsigned char)('0' + digit);
-      started = 1u;
-    }
-  }
-  *out = 0;
 }
 

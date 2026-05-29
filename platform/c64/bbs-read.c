@@ -14,12 +14,16 @@
 #ifdef BBS_MSG_MODULE
 #include "bbs-msg-bind.h"
 #endif
+#ifdef BBS_BANK_BUILD
+#include "bbs-bank-macros.h"
+#include "bbs-fmt.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef BBS_MSG_MODULE
+#if !defined(BBS_MSG_MODULE) && !defined(BBS_BANK_BUILD)
 extern BBS_BOARD_REC board;
 extern BBS_CONFIG_REC bbs_config;
 extern BBS_STATUS_REC bbs_status;
@@ -35,7 +39,11 @@ int read_msg(unsigned short num)
 
     shell_output_str(NULL,PETSCII_LOWER, PETSCII_WHITE);
 
+#ifdef BBS_BANK_BUILD
+    bbs_fmt_msg_id(file, bbs_status.board_id, num);
+#else
     sprintf(file, "%d-%d", bbs_status.board_id, num);
+#endif
     
     set_prompt();
     bbs_status.status=STATUS_READ;
@@ -71,7 +79,11 @@ PROCESS_THREAD(bbs_read_process, ev, data)
 
   PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
   input = data;
+#ifdef BBS_BANK_BUILD
+  num = bbs_parse_u16(input->data1);
+#else
   num = atoi(input->data1);
+#endif
   bbs_usrstats.current_msg[bbs_status.board_id] = num;
 
   if(num>0 && num <= bbs_config.msg_id[bbs_status.board_id]){

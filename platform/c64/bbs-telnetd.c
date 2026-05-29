@@ -44,17 +44,21 @@
 #include <time.h> /* CLK_TCK: jiffies/sec, same basis as clock_seconds() in settime */
 #endif
 #include "bbs-encodings.h"
+#ifndef BBS_SERIAL_TRANSPORT
+#include "bbs-resident.h"
+#endif
 #include "bbs-shell.h"
 #include "bbs-defs.h"
 #include "bbs-wrap.h"
 #include "bbs-telnetd.h"
-
+#ifdef BBS_SERIAL_TRANSPORT
 extern BBS_BOARD_REC board;
 extern BBS_STATUS_REC bbs_status;
 extern BBS_USER_REC bbs_user;
-extern unsigned short bbs_locked;
 extern BBS_USER_STATS bbs_usrstats;
 extern BBS_SYSTEM_STATS bbs_sysstats;
+#endif
+extern unsigned short bbs_locked;
 
 PROCESS(telnetd_process, "Telnet server");
 
@@ -499,6 +503,10 @@ telnetd_serial_hw_ensure_open(void)
     return 1u;
   }
   if(ser_open(&magnetar_serial_params) == SER_ERR_OK) {
+#ifdef BBS_SERIAL_UP2400
+    /* UP2400 driver: enable userport RS-232 hooks (see c64-up2400.s IOCTL). */
+    (void)ser_ioctl(1, NULL);
+#endif
     telnetd_serial_hw_open = 1u;
     return 1u;
   }
@@ -1009,7 +1017,7 @@ telnetd_feed(const unsigned char *ptr, unsigned int len)
 
   if(bbs_status.status == STATUS_XFER) {
     while(len > 0u) {
-      bbs_module_xfer_feed(*ptr++);
+      bbs_bank_xfer_feed(*ptr++);
       --len;
     }
     return;

@@ -11,20 +11,27 @@
 
 #include "contiki.h"
 #include "contiki-lib.h"
+#ifndef BBS_SERIAL_TRANSPORT
+#include "bbs-resident.h"
+#endif
 #include "bbs-shell.h"
 #include "bbs-encodings.h"
+#include "bbs-msg-extra.h"
+#ifndef BBS_SERIAL_TRANSPORT
+#include "bbs-bank.h"
+#else
 #include "bbs-setboard.h"
+#include "bbs-read.h"
+#include "bbs-post.h"
+#endif
 #include "bbs-file.h"
 #include "bbs-telnetd.h"
-#include "bbs-modules.h"
-#include <modload.h>
 #include "cfs/cfs.h"
 //#include <em.h>
 #include <ctype.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-
 
 LIST(commands);
 
@@ -37,6 +44,7 @@ static struct process *front_process;
 static unsigned long clock_offset;
 static unsigned long last_time=0;
 
+#ifdef BBS_SERIAL_TRANSPORT
 BBS_BOARD_REC board;
 BBS_CONFIG_REC bbs_config;
 BBS_STATUS_REC bbs_status;
@@ -44,85 +52,18 @@ BBS_USER_REC bbs_user;
 BBS_USER_STATS bbs_usrstats;
 BBS_SYSTEM_STATS bbs_sysstats;
 BBS_TIME_REC bbs_time;
+#endif
 extern BBS_BUFFER buf;
 
 unsigned short bbs_locked=0;
 unsigned short set_step=0;
 
-enum {
-  BBS_CMDMOD_NONE = 0,
-  BBS_CMDMOD_MSG  = 1,
-  BBS_CMDMOD_XFER = 2,
-  BBS_CMDMOD_POST = 3
-};
-static unsigned char bbs_cmdmod_active;
-static unsigned char bbs_cmdmod_dynamic;
-static void *bbs_cmdmod_image;
-static bbs_module_iface_t *bbs_cmdmod_iface;
-static unsigned char bbs_module_msg_init_ctx(void);
-static void bbs_module_msg_deinit_ctx(void);
-#ifdef BBS_SERIAL_TRANSPORT
+#ifndef BBS_SERIAL_TRANSPORT
 static unsigned char bbs_xfer_prepare_command(const char *cmd);
-#endif
-static unsigned long bbs_module_clock_time_ctx(void);
-static int bbs_module_buf_putc_raw_ctx(unsigned char c);
-static void bbs_msg_set_handlers_ctx(void (*sys_stats)(void), void (*usr_stats)(void), void (*info)(void));
-static void (*bbs_msg_sys_stats_h)(void);
-static void (*bbs_msg_usr_stats_h)(void);
-static void (*bbs_msg_info_h)(void);
-static void bbs_post_set_handlers_ctx(
-    unsigned char (*post_begin)(void),
-    void (*post_on_input)(const struct shell_input *in),
-    void (*post_cancel)(void));
-unsigned char (*bbs_post_begin_h)(void);
-void (*bbs_post_on_input_h)(const struct shell_input *in);
-void (*bbs_post_cancel_h)(void);
-static const bbs_module_ctx_t bbs_module_ctx = {
-  bbs_module_msg_init_ctx,
-  bbs_module_msg_deinit_ctx,
-  bbs_msg_set_handlers_ctx,
-  bbs_post_set_handlers_ctx,
-  &board,
-  &bbs_config,
-  &bbs_status,
-  &bbs_user,
-  &bbs_time,
-  &bbs_usrstats,
-  &bbs_sysstats,
-  &shell_event_input,
-  shell_output_str,
-  shell_prompt,
-  shell_register_command,
-  shell_unregister_command,
-  set_prompt,
-  update_time,
-  bbs_banner,
-  file_path,
-  bbs_path_sys_at,
-  malloc,
-  free,
-  &buf,
-  bbs_transport_poll,
-  bbs_transport_stream_clear_sent,
-  bbs_stream_set_eof_process,
-  buf_append,
-  bbs_module_buf_putc_raw_ctx,
-  bbs_module_clock_time_ctx,
-#ifdef BBS_SERIAL_TRANSPORT
-  bbs_serial_flush_outbound
-#else
-  NULL
-#endif
-};
-
-static void bbs_module_msg_init(void);
-static void bbs_module_msg_deinit(void);
-static unsigned char bbs_module_try_load(unsigned char module_id);
-static void bbs_module_unload_dynamic(void);
-static unsigned char bbs_command_targets_msg_module(const char *cmd, int len);
+static unsigned char bbs_command_bank_id(const char *cmd, int len);
+static unsigned char bbs_bank_route_command(const char *cmd, int len);
 static unsigned char bbs_command_targets_xfer_module(const char *cmd, int len);
-static unsigned char bbs_modules_route_command(const char *cmd, int len);
-static unsigned char bbs_modules_activate(unsigned char module_id, unsigned char want_cmdmod);
+#endif
 
 /*---------------------------------------------------------------------------*/
 PROCESS(shell_process, "Shell");
@@ -162,64 +103,6 @@ SHELL_COMMAND(info_command, "i", "i : bbs info", &info_process);
 
 PROCESS(movie_process, "movies");
 SHELL_COMMAND(movie_command, "m", "m : movies", &movie_process);
-
-static void
-bbs_module_msg_init(void)
-{
-  /* Core keeps command stubs registered permanently; module only supplies handlers. */
-}
-
-static void
-bbs_module_msg_deinit(void)
-{
-  bbs_msg_sys_stats_h = NULL;
-  bbs_msg_usr_stats_h = NULL;
-  bbs_msg_info_h = NULL;
-}
-
-static unsigned char
-bbs_module_msg_init_ctx(void)
-{
-  bbs_module_msg_init();
-  return 1u;
-}
-
-static void
-bbs_module_msg_deinit_ctx(void)
-{
-  bbs_module_msg_deinit();
-}
-
-static unsigned long
-bbs_module_clock_time_ctx(void)
-{
-  return (unsigned long)clock_time();
-}
-
-static int
-bbs_module_buf_putc_raw_ctx(unsigned char c)
-{
-  return buf_putc_raw(c);
-}
-
-static void
-bbs_msg_set_handlers_ctx(void (*sys_stats)(void), void (*usr_stats)(void), void (*info)(void))
-{
-  bbs_msg_sys_stats_h = sys_stats;
-  bbs_msg_usr_stats_h = usr_stats;
-  bbs_msg_info_h = info;
-}
-
-static void
-bbs_post_set_handlers_ctx(
-    unsigned char (*post_begin)(void),
-    void (*post_on_input)(const struct shell_input *in),
-    void (*post_cancel)(void))
-{
-  bbs_post_begin_h = post_begin;
-  bbs_post_on_input_h = post_on_input;
-  bbs_post_cancel_h = post_cancel;
-}
 
 /*---------------------------------------------------------------------------*/
 void bbs_defaults(void)
@@ -591,9 +474,7 @@ static void
 login_stats_continue(void)
 {
   bbs_record_last_caller();
-  if(bbs_msg_sys_stats_h != NULL) {
-    bbs_msg_sys_stats_h();
-  }
+  bbs_msg_system_stats();
   shell_output_str(NULL, "\r\nhit return to continue", "");
   bbs_status.status = STATUS_STATS;
 }
@@ -831,33 +712,21 @@ PROCESS_THREAD(version_process, ev, data)
 PROCESS_THREAD(sys_stats_process, ev, data)
 {
   PROCESS_BEGIN();
-  if(bbs_msg_sys_stats_h != NULL) {
-    bbs_msg_sys_stats_h();
-  } else {
-    shell_output_str(NULL, "\r\nstats unavailable\r\n", "");
-  }
+  bbs_msg_system_stats();
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(usr_stats_process, ev, data)
 {
   PROCESS_BEGIN();
-  if(bbs_msg_usr_stats_h != NULL) {
-    bbs_msg_usr_stats_h();
-  } else {
-    shell_output_str(NULL, "\r\nstats unavailable\r\n", "");
-  }
+  bbs_msg_user_stats();
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(info_process, ev, data)
 {
   PROCESS_BEGIN();
-  if(bbs_msg_info_h != NULL) {
-    bbs_msg_info_h();
-  } else {
-    shell_output_str(NULL, "\r\ninfo unavailable\r\n", "");
-  }
+  bbs_msg_info();
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
@@ -1035,207 +904,103 @@ PROCESS_THREAD(settime_process, ev, data)
 
 
 
-/*---------------------------------------------------------------------------*/
-static unsigned char
-bbs_module_try_load(unsigned char module_id)
-{
-  struct mod_ctrl ctrl = { cfs_read };
-  int fd;
-  unsigned char rc;
-  const char *name;
-  bbs_module_iface_t *iface;
-  unsigned char msg[48];
-
-  if(module_id == BBS_MODULE_ID_MSG) {
-    name = "bbs-msg.mod";
-  } else if(module_id == BBS_MODULE_ID_XFER) {
-    name = "bbs-xfer.mod";
-  } else if(module_id == BBS_MODULE_ID_POST) {
-    name = "bbs-post.mod";
-  } else {
-    return 0u;
-  }
-
-  fd = cfs_open(name, CFS_READ);
-  if(fd < 0) {
-    log_message("\x96", "mod open failed");
-    return 0u;
-  }
-
-  ctrl.callerdata = fd;
-  rc = mod_load(&ctrl);
-  cfs_close(fd);
-  if(rc != MLOAD_OK) {
-    sprintf((char *)msg, "\x96mod_load rc=%u", (unsigned)rc);
-    log_message("", (char *)msg);
-    return 0u;
-  }
-
-  iface = (bbs_module_iface_t *)ctrl.module;
-  if(iface == NULL ||
-      iface->signature[0] != 'B' || iface->signature[1] != 'B' ||
-      iface->signature[2] != 'S' || iface->signature[3] != '1' ||
-      iface->module_id != module_id ||
-      iface->init == NULL || iface->deinit == NULL) {
-    if(ctrl.module != NULL) {
-      mod_free(ctrl.module);
-    }
-    return 0u;
-  }
-  if(module_id == BBS_MODULE_ID_XFER &&
-      (iface->set_op == NULL || iface->feed == NULL)) {
-    log_message("\x96", "xfer iface missing op/feed");
-    mod_free(ctrl.module);
-    return 0u;
-  }
-  bbs_cmdmod_image = ctrl.module;
-  bbs_cmdmod_iface = iface;
-  bbs_cmdmod_dynamic = 1u;
-  if(bbs_cmdmod_iface->init(&bbs_module_ctx) == 0u) {
-    mod_free(bbs_cmdmod_image);
-    bbs_cmdmod_dynamic = 0u;
-    bbs_cmdmod_image = NULL;
-    bbs_cmdmod_iface = NULL;
-    return 0u;
-  }
-  return 1u;
-}
-
-static void
-bbs_module_unload_dynamic(void)
-{
-  if(bbs_cmdmod_dynamic == 0u || bbs_cmdmod_image == NULL) {
-    bbs_cmdmod_dynamic = 0u;
-    bbs_cmdmod_image = NULL;
-    bbs_cmdmod_iface = NULL;
-    return;
-  }
-  if(bbs_cmdmod_iface != NULL) {
-    if(bbs_cmdmod_iface->module_id == BBS_MODULE_ID_MSG) {
-      bbs_msg_sys_stats_h = NULL;
-      bbs_msg_usr_stats_h = NULL;
-      bbs_msg_info_h = NULL;
-    } else if(bbs_cmdmod_iface->module_id == BBS_MODULE_ID_POST) {
-      bbs_post_begin_h = NULL;
-      bbs_post_on_input_h = NULL;
-      bbs_post_cancel_h = NULL;
-    }
-  }
-  if(bbs_cmdmod_iface != NULL && bbs_cmdmod_iface->deinit != NULL) {
-    bbs_cmdmod_iface->deinit();
-  }
-  mod_free(bbs_cmdmod_image);
-  bbs_cmdmod_dynamic = 0u;
-  bbs_cmdmod_image = NULL;
-  bbs_cmdmod_iface = NULL;
-}
-
-static unsigned char
-bbs_command_targets_msg_module(const char *cmd, int len)
-{
-  if(len == 1 &&
-      (cmd[0] == '#' || cmd[0] == 'r' || cmd[0] == 's' ||
-       cmd[0] == '+' || cmd[0] == '-' || cmd[0] == 'x' ||
-       cmd[0] == 'y' || cmd[0] == 'i' || cmd[0] == '\r' || cmd[0] == '\n')) {
-    return 1u;
-  }
-  return 0u;
-}
-
+#ifndef BBS_SERIAL_TRANSPORT
 static unsigned char
 bbs_command_targets_xfer_module(const char *cmd, int len)
 {
-  if((len == 1 && (cmd[0] == '$' || cmd[0] == 'u' || cmd[0] == 'd')) ||
-      (len == 2 && cmd[0] == 'c' && cmd[1] == 'd') ||
-      (len == 2 && cmd[0] == 'm' && cmd[1] == 'd')) {
-    return 1u;
+  return bbs_command_bank_id(cmd, len) == BBS_BANK_ID_XFER;
+}
+
+static unsigned char
+bbs_command_bank_id(const char *cmd, int len)
+{
+  if(len == 1) {
+    switch(cmd[0]) {
+    case '$':
+    case 'u':
+    case 'd':
+      return BBS_BANK_ID_XFER;
+    case 'w':
+      return BBS_BANK_ID_POST;
+    case '#':
+    case 'r':
+    case 's':
+    case '+':
+    case '-':
+      return BBS_BANK_ID_MSG;
+    case '\r':
+    case '\n':
+      return BBS_BANK_ID_MSG;
+    default:
+      break;
+    }
+  }
+  if(len == 2 && cmd[0] == 'c' && cmd[1] == 'd') {
+    return BBS_BANK_ID_XFER;
+  }
+  if(len == 2 && cmd[0] == 'm' && cmd[1] == 'd') {
+    return BBS_BANK_ID_XFER;
   }
   return 0u;
 }
 
-static unsigned char
-bbs_command_targets_post_module(const char *cmd, int len)
+static const char *
+bbs_bank_unavailable_msg(unsigned char bank_id)
 {
-  if(len == 1 && cmd[0] == 'w') {
-    return 1u;
+  switch(bank_id) {
+  case BBS_BANK_ID_XFER:
+    return "\n\rtransfer bank unavailable\n\r";
+  case BBS_BANK_ID_POST:
+    return "\n\rpost bank unavailable\n\r";
+  case BBS_BANK_ID_MSG:
+    return "\n\rmessage bank unavailable\n\r";
+  default:
+    return "\n\rbank unavailable\n\r";
   }
-  return 0u;
 }
 
 static unsigned char
-bbs_modules_activate(unsigned char module_id, unsigned char want_cmdmod)
+bbs_bank_route_command(const char *cmd, int len)
 {
-  if(bbs_status.status == STATUS_XFER) {
-    return 0u;
-  }
-  if(bbs_cmdmod_active == want_cmdmod && bbs_cmdmod_dynamic != 0u) {
+  unsigned char bank_id;
+
+  bank_id = bbs_command_bank_id(cmd, len);
+  if(bank_id == 0u) {
     return 1u;
   }
-  if(bbs_cmdmod_dynamic != 0u) {
-    bbs_module_unload_dynamic();
-  }
-  if(bbs_module_try_load(module_id) == 0u) {
-    return 0u;
-  }
-  bbs_cmdmod_active = want_cmdmod;
-  return 1u;
-}
 
-static unsigned char
-bbs_modules_route_command(const char *cmd, int len)
-{
-  unsigned char want = BBS_CMDMOD_NONE;
-
-  if(bbs_status.status == STATUS_XFER) {
+  if(bank_id == BBS_BANK_ID_XFER && bbs_status.status == STATUS_XFER) {
     shell_output_str(NULL, "\n\rtransfer active\n\r", "");
     return 0u;
   }
 
-  if(bbs_command_targets_xfer_module(cmd, len) != 0u) {
-    want = BBS_CMDMOD_XFER;
-  } else if(bbs_command_targets_post_module(cmd, len) != 0u) {
-    want = BBS_CMDMOD_POST;
-  } else if(bbs_command_targets_msg_module(cmd, len) != 0u) {
-    want = BBS_CMDMOD_MSG;
-  }
-
-  if(want != BBS_CMDMOD_NONE && want != bbs_cmdmod_active &&
-      front_process != &shell_process) {
+  if(front_process != &shell_process) {
     shell_output_str(NULL, "\n\rfinish current command first\n\r", "");
     return 0u;
   }
 
-  if(want == BBS_CMDMOD_XFER) {
-    if(bbs_modules_activate(BBS_MODULE_ID_XFER, BBS_CMDMOD_XFER) == 0u) {
-      shell_output_str(NULL, "\n\rtransfer module unavailable\n\r", "");
-      return 0u;
-    }
-  } else if(want == BBS_CMDMOD_POST) {
-    if(bbs_modules_activate(BBS_MODULE_ID_POST, BBS_CMDMOD_POST) == 0u) {
-      shell_output_str(NULL, "\n\rpost module unavailable\n\r", "");
-      return 0u;
-    }
-  } else if(want == BBS_CMDMOD_MSG) {
-    if(bbs_modules_activate(BBS_MODULE_ID_MSG, BBS_CMDMOD_MSG) == 0u) {
-      shell_output_str(NULL, "\n\rmessage module unavailable\n\r", "");
+  if(bbs_bank_active() == 0u || bbs_bank_id_active() != bank_id) {
+    if(bbs_bank_load(bank_id) == 0u) {
+      shell_output_str(NULL, (char *)bbs_bank_unavailable_msg(bank_id), "");
       return 0u;
     }
   }
-
   return 1u;
 }
+#endif /* !BBS_SERIAL_TRANSPORT */
 
+#ifndef BBS_SERIAL_TRANSPORT
 static unsigned char
 bbs_xfer_prepare_command(const char *cmd)
 {
-  if(bbs_cmdmod_dynamic != 0u && bbs_cmdmod_iface != NULL &&
-      bbs_cmdmod_iface->set_op != NULL) {
-    bbs_cmdmod_iface->set_op(cmd);
+  if(bbs_bank_active() != 0u) {
+    bbs_bank_set_op(cmd);
     return 1u;
   }
   (void)cmd;
   return 0u;
 }
+#endif
 
 /*---------------------------------------------------------------------------*/
 static struct shell_command *
@@ -1279,10 +1044,12 @@ start_command(char *commandline, struct shell_command *child)
     command_len = (int)(args - commandline - 1);
   }
 
-  if(bbs_modules_route_command(commandline, command_len) == 0u) {
+#ifndef BBS_SERIAL_TRANSPORT
+  if(bbs_bank_route_command(commandline, command_len) == 0u) {
     command_kill(child);
     return NULL;
   }
+#endif
 
   
   /* Go through list of commands to find a match for the first word in
@@ -1305,13 +1072,16 @@ start_command(char *commandline, struct shell_command *child)
     c->child = child;
     /*    printf("shell: start_command starting '%s'\n", c->process->name);*/
     /* Start a new process for the command. */
+#ifndef BBS_SERIAL_TRANSPORT
     if(bbs_command_targets_xfer_module(commandline, command_len) != 0u) {
       if(bbs_xfer_prepare_command(commandline) == 0u) {
         command_kill(child);
         return NULL;
       }
       process_start(c->process, NULL);
-    } else {
+    } else
+#endif
+    {
       process_start(c->process, args);
     }
   }
@@ -1437,12 +1207,9 @@ shell_input(char *commandline, int commandline_len)
 }
 
 void
-bbs_module_xfer_feed(unsigned char c)
+bbs_bank_xfer_feed(unsigned char c)
 {
-  if(bbs_cmdmod_active == BBS_CMDMOD_XFER && bbs_cmdmod_dynamic != 0u &&
-      bbs_cmdmod_iface != NULL && bbs_cmdmod_iface->feed != NULL) {
-    bbs_cmdmod_iface->feed(c);
-  }
+  bbs_bank_feed(c);
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -1591,7 +1358,13 @@ shell_init(void)
   shell_register_command(&usr_stats_command);
   shell_register_command(&info_command);
   shell_register_command(&movie_command);
-  bbs_post_core_init();
+#ifndef BBS_SERIAL_TRANSPORT
+  bbs_shared_publish();
+#else
+  bbs_read_init();
+  bbs_setboard_init();
+  bbs_post_init();
+#endif
 
   /* local console eye candy */
   clrscr();
@@ -1601,11 +1374,6 @@ shell_init(void)
   bbs_splash(BBS_MODE_CONSOLE);
 
   bbs_init();
-  bbs_cmdmod_active = BBS_CMDMOD_NONE;
-  bbs_cmdmod_dynamic = 0u;
-  bbs_cmdmod_image = NULL;
-  bbs_cmdmod_iface = NULL;
-  (void)bbs_modules_activate(BBS_MODULE_ID_MSG, BBS_CMDMOD_MSG);
 
   shell_event_input = process_alloc_event();
 
@@ -1656,7 +1424,6 @@ shell_start_after_probe(void)
   if(!bbs_try_lock_for_session()) {
     return;
   }
-  (void)bbs_modules_activate(BBS_MODULE_ID_MSG, BBS_CMDMOD_MSG);
   front_process = &bbs_login_process;
 }
 /*---------------------------------------------------------------------------*/
@@ -1666,7 +1433,6 @@ shell_start(void)
   if(!bbs_try_lock_for_session()) {
     return;
   }
-  (void)bbs_modules_activate(BBS_MODULE_ID_MSG, BBS_CMDMOD_MSG);
   shell_preconnect_banner();
   front_process = &bbs_login_process;
 }
@@ -1675,10 +1441,9 @@ void
 shell_stop(void)
 {
   //log_message("\x9e", "shell stop");
-  if(bbs_cmdmod_dynamic != 0u) {
-    bbs_module_unload_dynamic();
-  }
-  bbs_cmdmod_active = BBS_CMDMOD_NONE;
+#ifndef BBS_SERIAL_TRANSPORT
+  bbs_bank_unload();
+#endif
   bbs_unlock();
   killall();
 }

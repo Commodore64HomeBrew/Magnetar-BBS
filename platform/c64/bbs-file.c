@@ -5,6 +5,9 @@
  *         (c) 2009-2015 by Niels Haedecke <n.haedecke@unitybox.de>
  */
 
+#ifndef BBS_SERIAL_TRANSPORT
+#include "bbs-resident.h"
+#endif
 #include "bbs-shell.h"
 #include "bbs-file.h"
 #include "bbs-defs.h"
@@ -17,8 +20,12 @@
 #include <conio.h>
 #include <em.h>
 
+#ifndef BBS_SERIAL_TRANSPORT
+/* board, bbs_status via bbs-resident.h */
+#else
 extern BBS_STATUS_REC bbs_status;
 extern BBS_BOARD_REC board;
+#endif
 
 extern BBS_BUFFER buf;
 

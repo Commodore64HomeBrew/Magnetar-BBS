@@ -1,19 +1,19 @@
 /* bbs-post.c — compose/save board messages */
+#pragma static-locals(off)
+#ifdef BBS_BANK_BUILD
+#pragma rodata-name("CODE")
+#endif
 
 #include "contiki.h"
 #include "bbs-shell.h"
 #include "bbs-post.h"
 #include "bbs-file.h"
-#if defined(BBS_MSG_MODULE)
-#include "bbs-msg-bind.h"
-#elif defined(BBS_POST_MODULE)
-#include "bbs-post-bind.h"
-#endif
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
-#if !defined(BBS_MSG_MODULE) && !defined(BBS_POST_MODULE)
+#ifdef BBS_BANK_BUILD
+#include "bbs-bank-macros.h"
+#else
 extern BBS_BOARD_REC board;
 extern BBS_CONFIG_REC bbs_config;
 extern BBS_STATUS_REC bbs_status;
@@ -23,36 +23,15 @@ extern BBS_USER_STATS bbs_usrstats;
 extern BBS_SYSTEM_STATS bbs_sysstats;
 #endif
 
-#if defined(BBS_MSG_MODULE) || defined(BBS_POST_MODULE)
-#define log_message(a, b) do { (void)(a); (void)(b); } while(0)
-#endif
-
-static char *post_buffer;
-static char msg_name[12];
-static char file_name[40];
 static unsigned short post_cur;
 static unsigned short post_room;
 static unsigned short post_chunk;
 
-static void *
-bbs_post_alloc(unsigned size)
-{
-#if defined(BBS_MSG_MODULE) || defined(BBS_POST_MODULE)
-  return bbsm_malloc_p(size);
-#else
-  return malloc(size);
+#ifdef BBS_BANK_BUILD
+static char post_buffer[BBS_POST_BUFFER_SIZE];
+static char post_msg_name[12];
+static char post_file_name[40];
 #endif
-}
-
-static void
-bbs_post_free(void *ptr)
-{
-#if defined(BBS_MSG_MODULE) || defined(BBS_POST_MODULE)
-  bbsm_free_p(ptr);
-#else
-  free(ptr);
-#endif
-}
 
 static void
 post_echo_fix(void)
@@ -65,10 +44,6 @@ post_echo_fix(void)
 void
 end_post(void)
 {
-  if(post_buffer != NULL) {
-    bbs_post_free(post_buffer);
-    post_buffer = NULL;
-  }
   bbs_status.status = STATUS_LOCK;
   post_echo_fix();
   poke(0xd011, peek(0xd011) | 0x10);
@@ -91,10 +66,8 @@ post_commit(char *post_buffer, char *msg_name, char *file_name)
   sprintf(msg_name, "%d-%d", b, id);
   file_path(msg_name, id, file_name, 40);
   sprintf(file_name, "%s:%d-%d", file_name, b, id);
-#ifndef BBS_MSG_MODULE
   log_message("", post_buffer);
   log_message("\x99write: ", file_name);
-#endif
   cbm_save(file_name, board.subs_device, post_buffer, bbs_status.msg_size);
   bbs_path_sys_at(file_name, BBS_CFG_FILE);
   cbm_save(file_name, board.sys_device, &bbs_config, sizeof(bbs_config));
@@ -109,16 +82,13 @@ SHELL_COMMAND(bbs_post_command, "w", "w : write msg", &bbs_post_process);
 PROCESS_THREAD(bbs_post_process, ev, data)
 {
 	struct shell_input *input;
+#ifndef BBS_BANK_BUILD
+	char post_buffer[BBS_POST_BUFFER_SIZE];
+	char msg_name[12];
+	char file_name[40];
+#endif
 
 	PROCESS_BEGIN();
-
-        post_buffer = (char *)bbs_post_alloc((unsigned)BBS_POST_BUFFER_SIZE);
-        if(post_buffer == NULL) {
-          //shell_output_str(NULL, "\r\npost buffer unavailable\r\n", "");
-          bbs_status.status = STATUS_LOCK;
-          set_prompt();
-          PROCESS_EXIT();
-        }
 
 	bordercolor(3);
 	poke(0xd011, peek(0xd011) & 0xef);
@@ -130,7 +100,7 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 	bbs_status.status = STATUS_SUBJ;
 	bbs_status.msg_size = 0u;
 	post_buffer[0] = '\0';
-#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_MSG_MODULE)
+#ifdef BBS_SERIAL_TRANSPORT
 	PROCESS_PAUSE();
 #endif
 
@@ -180,7 +150,13 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 		}
 
 		else if(post_cmd_eq(input->data1, "/s\x0a\x0d", "/s\x0d\x0a")) {
-			post_commit(post_buffer, msg_name, file_name);
+			post_commit(post_buffer,
+#ifdef BBS_BANK_BUILD
+			    post_msg_name, post_file_name
+#else
+			    msg_name, file_name
+#endif
+			    );
 			PROCESS_EXIT();
 		}
 

@@ -6,11 +6,12 @@ endif
 # --- Default (omit BBS_SERIAL, or BBS_SERIAL=0): contiki-bbs.c64 -----------------
 # Contiki uIP/TCP on the C64; CS8900A (RR-Net / TFE) via STATIC_DRIVER=_cs8900a.
 #
-# --- BBS_SERIAL=1 only: magnetar-serial.c64 ---------------------------------------
-# No Contiki TCP/uIP on the C64. SwiftLink raw serial; host runs telnet/TCP bridge.
-# File transfer (XMODEM) is serial-only.
+# --- BBS_SERIAL=1: magnetar-serial.c64 (SwiftLink, 38400) -------------------------
+# --- BBS_SERIAL=2: magnetar-serial.c64 (userport UP2400, 2400) --------------------
+# No Contiki TCP/uIP on the C64. Host runs telnet/TCP bridge. XMODEM is serial-only.
 #
-ifeq ($(strip $(BBS_SERIAL)),1)
+BBS_SERIAL_FLAVOR := $(strip $(BBS_SERIAL))
+ifneq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
 CONTIKI_PROJECT := magnetar-serial
 SKIP_CONTIKI_MAIN := 1
 CONTIKI_WITH_IPV4 := 0
@@ -19,38 +20,43 @@ CONTIKI_WITH_RIME := 0
 CONTIKI_WITH_RPL := 0
 BBS_HEADLESS := 1
 CONTIKI_BBS_MINIMAL := 1
+ifeq ($(BBS_SERIAL_FLAVOR),2)
+DEFINES := WITH_LOGGING,TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,BBS_SERIAL_UP2400,STATIC_DRIVER=c64_up2400_ser
+else
 DEFINES := WITH_LOGGING,TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,STATIC_DRIVER=c64_swlink_ser
+endif
 CFLAGS += -DCONNECTIONS=1 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=128 -DUIP_CONF_TCP_MSS=64
-PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-telnetd.c bbs-encodings.c bbs-post-core.c
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-read.c bbs-post.c bbs-setboard.c bbs-msg-extra.c bbs-fmt.c bbs-telnetd.c bbs-encodings.c
+ifeq ($(BBS_SERIAL_FLAVOR),2)
+PROJECT_SOURCEFILES += vendor/up2400/c64-up2400.S
+endif
 else
 CONTIKI_PROJECT := contiki-bbs
+contiki-bbs: banks
+.PHONY: banks
 CONTIKI_NET_MINIMAL := 1
 BBS_HEADLESS := 1
 CONTIKI_BBS_MINIMAL := 1
-PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-telnetd.c bbs-encodings.c bbs-post-core.c
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-msg-extra.c bbs-fmt.c bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
 endif
 
 all: $(CONTIKI_PROJECT)
 
-modules: bbs-msg.mod bbs-post.mod bbs-xfer.mod
+ifneq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
+banks:
+	@:
+else
+banks: bbs-bank1.bin bbs-bank2.bin bbs-bank3.bin
+endif
 
 $(OBJECTDIR):
 	@mkdir -p "$@"
 
-MODULE_FLAVOR := $(if $(filter 1,$(strip $(BBS_SERIAL))),serial,tcp)
-
 TARGET = c64
-MODULE_FLAVOR_FILE := obj_$(TARGET)/.modules-flavor
+BANK_CFG = c64-bbs-bank.cfg
+BANK_CC65_LIB = $(OBJECTDIR)/c64-bank.lib
 
-.PHONY: check-module-flavor
-check-module-flavor: | $(OBJECTDIR)
-	@if [ -f "$(MODULE_FLAVOR_FILE)" ] && [ "$$(cat "$(MODULE_FLAVOR_FILE)")" != "$(MODULE_FLAVOR)" ]; then \
-		echo "error: module flavor mismatch (found $$(cat "$(MODULE_FLAVOR_FILE)"), need $(MODULE_FLAVOR)). run 'make clean' first."; \
-		exit 1; \
-	fi
-	@echo "$(MODULE_FLAVOR)" > "$(MODULE_FLAVOR_FILE)"
-
-ifneq ($(strip $(BBS_SERIAL)),1)
+ifeq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
 # WITH_PFS: contiki.cfg and //x/ BBS paths via cfs_open (not cbm_* during boot).
 DEFINES = WITH_LOGGING,WITH_PFS,TELNETD_CONF_REJECT,UIP_CONF_LOGGING=0,MAGNETAR_BBS,STATIC_DRIVER=cs8900a
 CFLAGS += -DCONNECTIONS=2 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=606 -DUIP_CONF_TCP_MSS=536 -DUIP_CONF_ARPTAB_SIZE=2 -DUIP_CONF_ICMP=0 -DUIP_CONF_STATISTICS=0
@@ -78,22 +84,22 @@ ifeq ($(findstring STATIC_DRIVER,$(DEFINES)),)
 CONTIKI_HEADLESS_FILTER += cs8900a.S
 endif
 CONTIKI_SOURCEFILES := $(filter-out $(CONTIKI_HEADLESS_FILTER),$(CONTIKI_SOURCEFILES))
-ifneq ($(findstring STATIC_DRIVER,$(DEFINES)),)
-# STATIC_DRIVER: link cs8900a into the main binary (no cs8900a.eth on disk).
+ifneq ($(findstring STATIC_DRIVER=cs8900a,$(DEFINES)),)
+# Ethernet STATIC_DRIVER: link cs8900a into the main binary (no cs8900a.eth on disk).
 CONTIKI_SOURCEFILES += cs8900a.S
 endif
 CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFILES)}}
 endif
 
 # CONTIKI_BBS_MINIMAL omits PFS from platform/c64/Makefile.c64; add it for disk config.
-ifneq ($(strip $(BBS_SERIAL)),1)
+ifeq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
 ifneq ($(findstring WITH_PFS,$(DEFINES)),)
 CONTIKI_SOURCEFILES += pfs.S pfs-dir.c pfs-dir-asm.S pfs_remove.S pfs_seek.S pfs_write.S
 CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFILES)}}
 endif
 endif
 
-ifeq ($(strip $(BBS_SERIAL)),1)
+ifneq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
 CONTIKI_SOURCEFILES := $(filter-out config.c,$(CONTIKI_SOURCEFILES))
 CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFILES)}}
 cs8900a.eth lan91c96.eth w5100.eth:
@@ -105,68 +111,75 @@ else
 endif
 
 CC65_LIB = $(patsubst %/target,%/lib,$(shell $(CC) --print-target-path))/$(TARGET).lib
-MODULE_CC65_LIB = $(OBJECTDIR)/c64-module.lib
 
-$(OBJECTDIR)/bbs-msg-module.o: bbs-msg-module.c | $(OBJECTDIR) check-module-flavor
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_MSG_MODULE -o $@ $<
-
-$(OBJECTDIR)/bbs-msg-bind.o: bbs-msg-bind.c | $(OBJECTDIR) check-module-flavor
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_MSG_MODULE -o $@ $<
-
-$(OBJECTDIR)/bbs-read-module.o: bbs-read.c | $(OBJECTDIR) check-module-flavor
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_MSG_MODULE -o $@ $<
-
-$(OBJECTDIR)/bbs-setboard-module.o: bbs-setboard.c | $(OBJECTDIR) check-module-flavor
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_MSG_MODULE -o $@ $<
-
-$(OBJECTDIR)/bbs-msg-extra.o: bbs-msg-extra.c | $(OBJECTDIR) check-module-flavor
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_MSG_MODULE -o $@ $<
-
-$(OBJECTDIR)/bbs-post-only.o: bbs-post-module.c | $(OBJECTDIR) check-module-flavor
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_POST_MODULE -o $@ $<
-
-$(OBJECTDIR)/bbs-post-module.o: bbs-post-module.c | $(OBJECTDIR) check-module-flavor
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_POST_MODULE -o $@ $<
-
-$(OBJECTDIR)/bbs-post-bind.o: bbs-post-bind.c | $(OBJECTDIR) check-module-flavor
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_POST_MODULE -o $@ $<
-
-$(OBJECTDIR)/bbs-module-stubs.o: bbs-module-stubs.S | $(OBJECTDIR) check-module-flavor
+$(OBJECTDIR)/vendor/up2400/c64-up2400.o: vendor/up2400/c64-up2400.S | $(OBJECTDIR)
+	@mkdir -p $(dir $@)
 	@echo "  AS        $<"
-	@$(AS) $(ASFLAGS) -o $@ $<
+	@$(AS) -t c64 -D DYN_DRV=0 -I vendor/up2400 -o $@ $<
 
-$(MODULE_CC65_LIB): | $(OBJECTDIR) check-module-flavor
+ifneq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
+else
+
+$(BANK_CC65_LIB): | $(OBJECTDIR)
 	@cp "$(CC65_LIB)" "$@"
 	@ar65 d "$@" crt0.o callmain.o condes.o zerobss.o copydata.o
+	@ar65 d "$@" vsprintf.o vsnprintf.o printf.o sprintf.o snprintf.o
 
-$(OBJECTDIR)/bbs-xfer-module.o: bbs-xfer-module.c | $(OBJECTDIR) check-module-flavor
+$(OBJECTDIR)/bbs-transfer-bank.o: bbs-transfer.c | $(OBJECTDIR)
 	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_XFER_MODULE -o $@ $<
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -Os -o $@ $<
 
-$(OBJECTDIR)/bbs-transfer-module.o: bbs-transfer.c | $(OBJECTDIR) check-module-flavor
+$(OBJECTDIR)/bbs-bank-xfer.o: bbs-bank-xfer.c | $(OBJECTDIR)
 	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_XFER_MODULE -o $@ $<
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -o $@ $<
 
-$(OBJECTDIR)/bbs-xmodem-module.o: bbs-xmodem.S | $(OBJECTDIR) check-module-flavor
+$(OBJECTDIR)/bbs-xmodem-bank.o: bbs-xmodem.S | $(OBJECTDIR)
 	@echo "  AS        $<"
 	@$(AS) $(ASFLAGS) -o $@ $<
 
-bbs-msg.mod: $(OBJECTDIR)/bbs-msg-module.o $(OBJECTDIR)/bbs-msg-bind.o $(OBJECTDIR)/bbs-read-module.o $(OBJECTDIR)/bbs-setboard-module.o $(OBJECTDIR)/bbs-msg-extra.o $(OBJECTDIR)/bbs-module-stubs.o $(MODULE_CC65_LIB)
+bbs-bank1.prg: $(OBJECTDIR)/bbs-bank-xfer.o $(OBJECTDIR)/bbs-transfer-bank.o $(OBJECTDIR)/bbs-xmodem-bank.o $(BANK_CC65_LIB)
 	@echo "  LD       " $@
-	$(Q)$(LD) -o $@ -t module -m $@.map $(filter-out $(MODULE_CC65_LIB),$^) $(MODULE_CC65_LIB)
+	$(Q)$(LD) -o $@ -C $(BANK_CFG) -m $@.map $(filter-out $(BANK_CC65_LIB),$^) $(BANK_CC65_LIB)
 
-bbs-post.mod: $(OBJECTDIR)/bbs-post-module.o $(OBJECTDIR)/bbs-post-bind.o $(OBJECTDIR)/bbs-module-stubs.o $(MODULE_CC65_LIB)
-	@echo "  LD       " $@
-	$(Q)$(LD) -o $@ -t module -m $@.map $(filter-out $(MODULE_CC65_LIB),$^) $(MODULE_CC65_LIB)
+bbs-bank1.bin: bbs-bank1.prg
+bbs-bank2.bin: bbs-bank2.prg
+bbs-bank3.bin: bbs-bank3.prg
 
-bbs-xfer.mod: $(OBJECTDIR)/bbs-xfer-module.o $(OBJECTDIR)/bbs-transfer-module.o $(OBJECTDIR)/bbs-xmodem-module.o $(OBJECTDIR)/bbs-module-stubs.o $(MODULE_CC65_LIB)
+%.bin: %.prg
+	@echo "  BIN      " $@
+	@dd if=$< of=$@ bs=1 skip=2 2>/dev/null
+
+
+$(OBJECTDIR)/bbs-post-bank.o: bbs-post.c | $(OBJECTDIR)
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -Os -o $@ $<
+
+$(OBJECTDIR)/bbs-read-bank.o: bbs-read.c | $(OBJECTDIR)
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -Os -o $@ $<
+
+$(OBJECTDIR)/bbs-setboard-bank.o: bbs-setboard.c | $(OBJECTDIR)
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -Os -o $@ $<
+
+$(OBJECTDIR)/bbs-fmt-bank.o: bbs-fmt.c | $(OBJECTDIR)
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -Os -o $@ $<
+
+$(OBJECTDIR)/bbs-bank-post.o: bbs-bank-post.c | $(OBJECTDIR)
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -o $@ $<
+
+$(OBJECTDIR)/bbs-bank-msg.o: bbs-bank-msg.c | $(OBJECTDIR)
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -o $@ $<
+
+bbs-bank2.prg: $(OBJECTDIR)/bbs-bank-post.o $(OBJECTDIR)/bbs-post-bank.o $(CC65_LIB)
 	@echo "  LD       " $@
-	$(Q)$(LD) -o $@ -t module -m $@.map $(filter-out $(MODULE_CC65_LIB),$^) $(MODULE_CC65_LIB)
+	$(Q)$(LD) -o $@ -C $(BANK_CFG) -m $@.map $^
+
+bbs-bank3.prg: $(OBJECTDIR)/bbs-bank-msg.o $(OBJECTDIR)/bbs-read-bank.o $(OBJECTDIR)/bbs-setboard-bank.o $(OBJECTDIR)/bbs-fmt-bank.o $(CC65_LIB)
+	@echo "  LD       " $@
+	$(Q)$(LD) -o $@ -C $(BANK_CFG) -m $@.map $^
+
+endif

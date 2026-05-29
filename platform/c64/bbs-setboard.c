@@ -14,12 +14,16 @@
 #ifdef BBS_MSG_MODULE
 #include "bbs-msg-bind.h"
 #endif
+#ifdef BBS_BANK_BUILD
+#include "bbs-bank-macros.h"
+#include "bbs-fmt.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef BBS_MSG_MODULE
+#if !defined(BBS_MSG_MODULE) && !defined(BBS_BANK_BUILD)
 extern BBS_BOARD_REC board;
 extern BBS_CONFIG_REC bbs_config;
 extern BBS_STATUS_REC bbs_status;
@@ -69,7 +73,11 @@ PROCESS_THREAD(bbs_setboard_process, ev, data)
 
   PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
   input = data;
+#ifdef BBS_BANK_BUILD
+  num = bbs_parse_u16(input->data1);
+#else
   num = atoi(input->data1);
+#endif
 
   if(num>0 && num <=board.max_boards){
 

@@ -223,4 +223,6 @@ typedef struct {
   unsigned int size;
 } BBS_BUFFER;
 
+void log_message(const char *a, const char *b);
+
 #endif /* __BBSDEFS_H_ */
