@@ -42,6 +42,7 @@ typedef struct bbs_shared_s {
   void (*shell_register_command)(struct shell_command *c);
   void (*shell_unregister_command)(struct shell_command *c);
   void (*transport_poll)(void);
+  void (*transport_flush_outbound)(void);
   int (*buf_append)(const char *data, int len);
   int (*buf_putc_raw)(unsigned char c);
   unsigned long (*clock_time)(void);
@@ -56,16 +57,16 @@ typedef struct bbs_shared_s {
 } bbs_shared_t;
 
 /*
- * Mailbox word at start of RESIDENT segment (c64-bbs-core.cfg @ $A986).
- * Not $0C00: that address lies inside the linked MAIN image on this build.
+ * Mailbox word at $A986 (segment MAILBOX in c64-bbs-core.cfg).
+ * Banks read this fixed address; core owns the storage symbol.
  */
 #define BBS_SHARED_MAILBOX  0xA986u
 
 extern bbs_shared_t bbs_shared_data;
-
 #ifdef BBS_BANK_BUILD
 #define BBS_SHARED    (*(bbs_shared_t **)(BBS_SHARED_MAILBOX))
 #else
+extern volatile bbs_shared_t *bbs_shared_mailbox;
 #define BBS_SHARED    (&bbs_shared_data)
 #endif
 

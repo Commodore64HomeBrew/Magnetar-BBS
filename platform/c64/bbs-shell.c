@@ -15,6 +15,7 @@
 #include "bbs-shell.h"
 #include "bbs-encodings.h"
 #include "bbs-bank.h"
+#include "bbs-transfer.h"
 #include "bbs-file.h"
 #include "bbs-telnetd.h"
 //#include <em.h>
@@ -165,7 +166,6 @@ static void bbs_init(void)
 
 	board.transfer_device = 8;
 	sprintf(board.transfer_prefix, "//t/");
-	
 	/* read BBS base configuration */
 
 	sprintf(board.sub_names[0], "blackhole");
@@ -440,13 +440,8 @@ static void
 login_stats_continue(void)
 {
   bbs_record_last_caller();
-  if(bbs_bank_load(BBS_BANK_ID_UI) != 0u &&
-     BBS_BANK_HDR->run_sys_stats != NULL) {
-    BBS_BANK_HDR->run_sys_stats();
-  } else {
-    shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
-  }
-  shell_output_str(NULL, "\r\nhit return to continue", "");
+  /* UI bank runs at $B000 and overlaps uIP BSS; do not load during TCP login. */
+  shell_output_str(NULL, "\r\n\x9ehit return to continue", "");
   bbs_status.status = STATUS_STATS;
 }
 
@@ -709,6 +704,8 @@ PROCESS_THREAD(movie_process, ev, data)
       bbs_status.speed = 1u;
     }
 
+    telnetd_discard_line_input();
+
     bordercolor(7);
     poke(0xd011, peek(0xd011) & 0xef);
     shell_output_str(NULL, "\x93", "\x8e");
@@ -719,17 +716,19 @@ PROCESS_THREAD(movie_process, ev, data)
       bordercolor(2);
       poke(0xd011, peek(0xd011) | 0x10);
     } else {
-    bbs_transport_flush_outbound();
+    telnetd_discard_pending_input();
+    bbs_transport_stream_prepare();
     bbs_stream_set_eof_process(&movie_process);
     bbs_status.status = STATUS_STREAM;
-    telnetd_kick_stream();
-
-    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || bbs_status.status == STATUS_LOCK);
-    if(ev == shell_event_input) {
-      bbs_status.status = STATUS_LOCK;
-      PROCESS_PAUSE();
+    telnetd_stream_begin();
+    bbs_transport_stream_prime();
+    PROCESS_WAIT_EVENT();
+    if(bbs_status.status == STATUS_STREAM) {
+      telnetd_kick_stream();
     }
+    PROCESS_WAIT_EVENT_UNTIL(bbs_status.status == STATUS_LOCK);
 
+    telnetd_stream_end();
     bbs_transport_stream_clear_sent();
     cbm_close(10);
     bbs_stream_set_eof_process(NULL);
@@ -864,9 +863,9 @@ bbs_command_bank_id(const char *cmd, int len)
 {
   if(len == 1) {
     switch(cmd[0]) {
-    case '$':
     case 'u':
     case 'd':
+    case '$':
       return BBS_BANK_ID_XFER;
     case 'w':
       return BBS_BANK_ID_POST;
@@ -937,6 +936,17 @@ bbs_bank_route_command(const char *cmd, int len)
     }
   }
   return 1u;
+}
+
+static unsigned char
+bbs_ui_prepare_command(const char *cmd)
+{
+  if(bbs_bank_active() != 0u) {
+    bbs_bank_set_op(cmd);
+    return 1u;
+  }
+  (void)cmd;
+  return 0u;
 }
 
 static unsigned char
@@ -1023,7 +1033,20 @@ start_command(char *commandline, struct shell_command *child)
         command_kill(child);
         return NULL;
       }
-      process_start(c->process, NULL);
+      if(command_len == 1u && commandline[0] == 'u') {
+        process_start(c->process, NULL);
+      } else {
+        bbs_transport_flush_outbound();
+        command_kill(child);
+        c = NULL;
+      }
+    } else if(bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_UI) {
+      if(bbs_ui_prepare_command(commandline) == 0u) {
+        command_kill(child);
+        return NULL;
+      }
+      command_kill(child);
+      c = NULL;
     } else {
       process_start(c->process, args);
     }
@@ -1092,6 +1115,9 @@ shell_input(char *commandline, int commandline_len)
 #endif
 
   if(bbs_status.status == STATUS_XFER) {
+    return;
+  }
+  if(bbs_status.status == STATUS_STREAM) {
     return;
   }
 

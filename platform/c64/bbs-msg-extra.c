@@ -3,6 +3,7 @@
 #include "bbs-defs.h"
 #include "bbs-msg-extra.h"
 #include "bbs-fmt.h"
+#include <string.h>
 
 #ifndef BBS_BANK_BUILD
 #error "bbs-msg-extra.c is built for bank overlays only (BBS_BANK_BUILD)"
@@ -127,6 +128,7 @@ stats_chart_done:
   shell_output_str(NULL, "\r\n\x9etotal msgs:\x05 ", "");
   bbs_u16_to_dec(total_msgs, message);
   shell_output_str(NULL, (char *)message, "");
+  bbs_transport_flush_outbound();
 }
 
 PROCESS(sys_stats_process, "sysstats");

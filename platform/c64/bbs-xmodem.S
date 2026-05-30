@@ -17,7 +17,8 @@ LF      = $0a
 
 .export _bbs_xmodem_send
 .export _bbs_xmodem_recv
-.export _bbs_xmodem_rbuf
+
+.include "bbs-screen-layout.inc"
 
 .bss
 lastblk: .res 1
@@ -27,7 +28,6 @@ crc:     .res 1
 crch:    .res 1
 retry:   .res 1
 retry2:  .res 1
-_bbs_xmodem_rbuf: .res 132
 
 .segment "CODE"
 GetByte:
@@ -61,7 +61,7 @@ CalcCRC:
         sta crc
         sta crch
         ldy #2
-C1:     lda _bbs_xmodem_rbuf,y
+C1:     lda BBS_XMODEM_RBUF_BASE,y
         eor crch
         sta crch
         ldx #8
@@ -86,7 +86,7 @@ SndBlk:
         ldx #0
         lda #SOH
         jsr PutChr
-S1:     lda _bbs_xmodem_rbuf,x
+S1:     lda BBS_XMODEM_RBUF_BASE,x
         jsr PutChr
         inx
         cpx #$84
@@ -116,18 +116,18 @@ SLoop:  lda lastblk
         jmp SDone
 SBlk:   inc blkno
         lda blkno
-        sta _bbs_xmodem_rbuf
+        sta BBS_XMODEM_RBUF_BASE
         eor #$ff
-        sta _bbs_xmodem_rbuf+1
+        sta BBS_XMODEM_RBUF_BASE+1
         jsr _bbs_xmodem_read_block
         pha
         jsr CalcCRC
         lda crc
         ldy #130
-        sta _bbs_xmodem_rbuf,y
+        sta BBS_XMODEM_RBUF_BASE,y
         iny
         lda crch
-        sta _bbs_xmodem_rbuf,y
+        sta BBS_XMODEM_RBUF_BASE,y
         ldx #0
         pla
         bne SLst
@@ -194,22 +194,22 @@ RBlk:   ldx #0
         sta retry2
 RB1:    jsr GetByte
         bcc RBad
-        sta _bbs_xmodem_rbuf,x
+        sta BBS_XMODEM_RBUF_BASE,x
         inx
         cpx #$84
         bne RB1
-        lda _bbs_xmodem_rbuf
+        lda BBS_XMODEM_RBUF_BASE
         cmp blkno
         bne RBad
-        lda _bbs_xmodem_rbuf+1
+        lda BBS_XMODEM_RBUF_BASE+1
         eor #$ff
         cmp blkno
         bne RBad
         jsr CalcCRC
-        lda _bbs_xmodem_rbuf+130
+        lda BBS_XMODEM_RBUF_BASE+130
         cmp crc
         bne RBad
-        lda _bbs_xmodem_rbuf+131
+        lda BBS_XMODEM_RBUF_BASE+131
         cmp crch
         bne RBad
         jsr _bbs_xmodem_write_block

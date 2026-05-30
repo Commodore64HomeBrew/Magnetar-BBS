@@ -5,6 +5,7 @@
  *         (c) 2009-2015 by Niels Haedecke <n.haedecke@unitybox.de>
  */
 
+#include "contiki.h"
 #include "bbs-resident.h"
 #include "bbs-shell.h"
 #include "bbs-file.h"
@@ -15,6 +16,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <conio.h>
 #include <em.h>
 

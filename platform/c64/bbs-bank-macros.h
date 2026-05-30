@@ -17,6 +17,7 @@
 #define shell_register_command BBS_SHARED->shell_register_command
 #define shell_unregister_command BBS_SHARED->shell_unregister_command
 #define bbs_transport_poll BBS_SHARED->transport_poll
+#define bbs_transport_flush_outbound BBS_SHARED->transport_flush_outbound
 #define buf_append         BBS_SHARED->buf_append
 #define clock_time()       (BBS_SHARED->clock_time())
 #define set_prompt()       (BBS_SHARED->set_prompt())

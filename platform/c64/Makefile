@@ -41,9 +41,18 @@ CONTIKI_BBS_MINIMAL := 1
 PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-fmt.c bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
 endif
 
-all: $(CONTIKI_PROJECT) banks
+all: $(CONTIKI_PROJECT) banks memcheck
 
 banks: bbs-bank1.bin bbs-bank2.bin bbs-bank3.bin bbs-bank4.bin
+
+.PHONY: memcheck
+memcheck: $(CONTIKI_PROJECT).c64 banks
+	@echo "  MEMCHECK  core"
+	@python3 $(CURDIR)/check-memmap.py core contiki-c64.map $(CONTIKI_PROJECT).c64
+	@for n in 1 2 3 4; do \
+	  echo "  MEMCHECK  bank$$n"; \
+	  python3 $(CURDIR)/check-memmap.py bank bbs-bank$$n.prg.map bbs-bank$$n.bin; \
+	done
 
 $(OBJECTDIR):
 	@mkdir -p "$@"
@@ -66,9 +75,12 @@ CFLAGS += --static-locals
 
 # Keep core BSS below $B000; bank overlays load at $B000-$BFFF.
 CORE_CFG = c64-bbs-core.cfg
-LDFLAGS += -C $(CORE_CFG)
 
 include $(CONTIKI)/Makefile.include
+
+# After Contiki's cpu/6502/Makefile.6502 resets LDFLAGS (-t c64).
+# Use our core cfg instead of -t; ld65 rejects -C and -t together.
+LDFLAGS := $(filter-out -t $(TARGET) -D __STACKSIZE__=0x200,$(LDFLAGS)) -C $(CORE_CFG)
 
 $(OBJECTDIR)/bbs-shell.o: bbs-shell.c
 	@echo "  CC        $<"
@@ -134,7 +146,7 @@ $(OBJECTDIR)/bbs-bank-xfer.o: bbs-bank-xfer.c | $(OBJECTDIR)
 
 $(OBJECTDIR)/bbs-xmodem-bank.o: bbs-xmodem.S | $(OBJECTDIR)
 	@echo "  AS        $<"
-	@$(AS) $(ASFLAGS) -o $@ $<
+	@$(AS) $(ASFLAGS) -I. -o $@ $<
 
 $(OBJECTDIR)/bbs-bank-hdr-xfer.o: bbs-bank-hdr-xfer.S | $(OBJECTDIR)
 	@echo "  AS        $<"

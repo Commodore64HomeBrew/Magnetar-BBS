@@ -37,6 +37,14 @@
 #define BBS_BUFFER_SIZE         (BBS_BUFFER_SCR_LAST - BBS_BUFFER_SCR_BASE + 1u)
 #endif
 
+/* XMODEM + inbound staging in the same screen window during STATUS_XFER. */
+#define BBS_XMODEM_RBUF_SIZE    132u
+#define BBS_XFER_SCR_RX_SIZE    128u
+#define BBS_XMODEM_RBUF_BASE    (BBS_BUFFER_SCR_LAST + 1u - BBS_XMODEM_RBUF_SIZE)
+#define BBS_XFER_SCR_RX_BASE    BBS_BUFFER_SCR_BASE
+#define BBS_XFER_SCR_TX_BASE    (BBS_XFER_SCR_RX_BASE + BBS_XFER_SCR_RX_SIZE)
+#define BBS_XFER_SCR_TX_SIZE    (BBS_XMODEM_RBUF_BASE - BBS_XFER_SCR_TX_BASE)
+
 #ifdef BBS_SERIAL_TRANSPORT
 /* Raw serial: small chunks + few passes per tick avoid overrunning modem/bridge FIFOs. */
 #ifndef TELNETD_SERIAL_TX_CHUNK

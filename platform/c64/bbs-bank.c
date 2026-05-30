@@ -13,7 +13,7 @@ extern int buf_putc_raw(unsigned char c);
 
 #define BBS_BANK_LOAD_CHN  10
 
-/* Off: screen RAM is the telnet outbound ring (see BBS_BUFFER_SCR_BASE). */
+/* Off: screen RAM is telnet outbound; XMODEM uses a partition during STATUS_XFER. */
 #define BBS_BANK_DEBUG  0
 
 static unsigned char
@@ -167,6 +167,7 @@ bbs_shared_clock_time(void)
 }
 
 extern BBS_BUFFER buf;
+extern volatile bbs_shared_t *bbs_shared_mailbox;
 extern int shell_event_input;
 
 static unsigned char bbs_bank_loaded;
@@ -203,8 +204,7 @@ bbs_bank_filename(unsigned char bank_id)
 void
 bbs_shared_publish(void)
 {
-  *(volatile bbs_shared_t **)(BBS_SHARED_MAILBOX) = &bbs_shared_data;
-
+  bbs_shared_mailbox = &bbs_shared_data;
   BBS_SHARED->sig0 = 'B';
   BBS_SHARED->sig1 = 'S';
   BBS_SHARED->active_bank = 0u;
@@ -215,6 +215,7 @@ bbs_shared_publish(void)
   BBS_SHARED->shell_register_command = shell_register_command;
   BBS_SHARED->shell_unregister_command = shell_unregister_command;
   BBS_SHARED->transport_poll = bbs_transport_poll;
+  BBS_SHARED->transport_flush_outbound = bbs_transport_flush_outbound;
   BBS_SHARED->buf_append = buf_append;
   BBS_SHARED->buf_putc_raw = buf_putc_raw;
   BBS_SHARED->clock_time = bbs_shared_clock_time;

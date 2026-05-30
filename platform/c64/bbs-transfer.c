@@ -62,18 +62,18 @@ extern BBS_BUFFER buf;
 #define XFER_WAIT (CLOCK_SECOND * 3)
 
 #define BBS_XFER_RX_SIZE  128u
+/* Longest xfer op: "cd " + 16-char name + NUL */
+#define BBS_XFER_OP_COPY_LEN  24u
 
 #if defined(BBS_BANK_BUILD)
 typedef struct bbs_xfer_state {
   unsigned int rx_head, rx_tail;
   unsigned char *rx_base;
   unsigned int rx_size;
-  unsigned char rx_stash[BBS_XFER_RX_SIZE];
   char cwd[BBS_XFER_PATH_LEN];
   const char *op_line;
-  char op_copy[TELNETD_CONF_LINELEN + 1];
+  char op_copy[BBS_XFER_OP_COPY_LEN];
   char pathbuf[BBS_FILE_PATH_BUFLEN];
-  char line[40];
   char outc;
 } bbs_xfer_state_t;
 #else
@@ -81,11 +81,9 @@ typedef struct bbs_xfer_state {
   unsigned int rx_head, rx_tail;
   unsigned char *rx_base;
   unsigned int rx_size;
-  unsigned char rx_stash[BBS_XFER_RX_SIZE];
   char cwd[BBS_XFER_PATH_LEN];
   const char *op_line;
   char pathbuf[BBS_FILE_PATH_BUFLEN];
-  char line[40];
   char cmd[24];
   char outc;
 #ifdef BBS_SERIAL_TRANSPORT
@@ -125,6 +123,10 @@ bbs_xfer_bind(const bbs_module_ctx_t *ctx)
 }
 #endif
 
+#if defined(BBS_BANK_BUILD)
+static void bbs_xfer_dispatch(void);
+#endif
+
 void
 bbs_xfer_set_op(const char *cmd)
 {
@@ -132,9 +134,12 @@ bbs_xfer_set_op(const char *cmd)
     return;
   }
 #ifdef BBS_BANK_BUILD
-  strncpy(xfer->op_copy, cmd, TELNETD_CONF_LINELEN);
-  xfer->op_copy[TELNETD_CONF_LINELEN] = '\0';
+  strncpy(xfer->op_copy, cmd, BBS_XFER_OP_COPY_LEN - 1u);
+  xfer->op_copy[BBS_XFER_OP_COPY_LEN - 1u] = '\0';
   xfer->op_line = xfer->op_copy;
+  if(cmd[0] != (char)'u' || cmd[1] != 0) {
+    bbs_xfer_dispatch();
+  }
 #else
   xfer->op_line = cmd;
 #endif
@@ -188,29 +193,6 @@ xfer_flush_rx(void)
     }
   }
 #endif
-}
-
-void
-bbs_xmodem_io_begin(void)
-{
-  if(xfer == NULL) {
-    return;
-  }
-  /* Screen-RAM ring is outbound-only; XMODEM RX uses a private stash. */
-  xfer->rx_base = xfer->rx_stash;
-  xfer->rx_size = (unsigned int)sizeof(xfer->rx_stash);
-  xfer->rx_head = xfer->rx_tail = 0u;
-  bbs_status.status = STATUS_XFER;
-  xfer_flush_rx();
-}
-
-void
-bbs_xmodem_io_end(void)
-{
-  bbs_status.status = STATUS_LOCK;
-  if(xfer != NULL) {
-    xfer->rx_base = NULL;
-  }
 }
 
 unsigned char
@@ -269,13 +251,13 @@ bbs_xmodem_read_block(void)
   int n;
   unsigned int p;
 
-  n = cbm_read(XFER_CHN, &bbs_xmodem_rbuf[2], 128);
+  n = cbm_read(XFER_CHN, &BBS_XMODEM_RBUF[2], 128);
   if(n < 0) {
     n = 0;
   }
   if((unsigned int)n < 128u) {
     for(p = (unsigned int)n; p < 128u; ++p) {
-      bbs_xmodem_rbuf[2 + p] = 0u;
+      BBS_XMODEM_RBUF[2 + p] = 0u;
     }
     return 1u;
   }
@@ -285,7 +267,7 @@ bbs_xmodem_read_block(void)
 void
 bbs_xmodem_write_block(void)
 {
-  (void)cbm_write(XFER_CHN, &bbs_xmodem_rbuf[2], 128);
+  (void)cbm_write(XFER_CHN, &BBS_XMODEM_RBUF[2], 128);
 }
 
 static void
@@ -300,43 +282,138 @@ xfer_msg_result(unsigned char code)
   }
 }
 
+static unsigned char
+xfer_dos_cmd(const char *cmd)
+{
+  unsigned char dev;
+
+  dev = board.transfer_device;
+  if(dev == 0u) {
+    return 0u;
+  }
+  if(cbm_open(XFER_CMD, dev, XFER_CMD, cmd) != 0) {
+    return 0u;
+  }
+  cbm_close(XFER_CMD);
+  return 1u;
+}
+
+/* SD2IEC: CD to transfer partition then virtual subdir (OPEN uses cwd-relative names). */
+static unsigned char
+xfer_cd_transfer(void)
+{
+  bbs_xfer_state_t *s = xfer;
+  char *p;
+
+  if(s == NULL) {
+    return 0u;
+  }
+  cbm_close(XFER_CHN);
+
+  /* transfer_prefix "//t/" -> "CD://T" on cmd channel 15 */
+  strcpy(s->pathbuf, "CD:");
+  strcat(s->pathbuf, board.transfer_prefix);
+  p = s->pathbuf + strlen(s->pathbuf) - 1;
+  if(p > s->pathbuf + 4 && *p == '/') {
+    *p = 0;
+  }
+  if(s->pathbuf[5] >= 'a' && s->pathbuf[5] <= 'z') {
+    s->pathbuf[5] = (char)(s->pathbuf[5] - 'a' + 'A');
+  }
+  if(xfer_dos_cmd(s->pathbuf) == 0u) {
+    return 0u;
+  }
+  if(s->cwd[0] == 0) {
+    return 1u;
+  }
+  strcpy(s->pathbuf, "CD:");
+  strcat(s->pathbuf, s->cwd);
+  p = s->pathbuf + strlen(s->pathbuf) - 1;
+  if(p > s->pathbuf + 2 && *p == '/') {
+    *p = 0;
+  }
+  return xfer_dos_cmd(s->pathbuf);
+}
+
+#if defined(BBS_BANK_BUILD)
+#define xfer_flush_outbound() bbs_transport_flush_outbound()
+#elif defined(BBS_SERIAL_TRANSPORT)
+#define xfer_flush_outbound() bbs_serial_flush_outbound()
+#else
+#define xfer_flush_outbound() bbs_transport_flush_outbound()
+#endif
+
+void
+bbs_xmodem_io_begin(void)
+{
+  if(xfer == NULL) {
+    return;
+  }
+  /* Partition screen RAM: RX ring, outbound ACK/data, 132-byte XMODEM block. */
+  xfer_flush_outbound();
+  buf.bufmem = (unsigned char *)BBS_XFER_SCR_TX_BASE;
+  buf.size = BBS_XFER_SCR_TX_SIZE;
+  buf.head = 0u;
+  buf.used = 0u;
+  xfer->rx_base = (unsigned char *)BBS_XFER_SCR_RX_BASE;
+  xfer->rx_size = BBS_XFER_SCR_RX_SIZE;
+  xfer->rx_head = xfer->rx_tail = 0u;
+  bbs_status.status = STATUS_XFER;
+  xfer_flush_rx();
+}
+
+void
+bbs_xmodem_io_end(void)
+{
+  bbs_status.status = STATUS_LOCK;
+  if(xfer != NULL) {
+    xfer->rx_base = NULL;
+  }
+  buf.bufmem = (unsigned char *)BBS_BUFFER_SCR_BASE;
+  buf.size = BBS_BUFFER_SIZE;
+  buf.head = 0u;
+  buf.used = 0u;
+}
+
 static void
 xfer_do_send(const char *path)
 {
   unsigned char r;
+  unsigned char dev;
 
-  if(cbm_open(XFER_CHN, board.transfer_device, XFER_CHN, path) != 0) {
+  dev = board.transfer_device;
+  if(xfer_cd_transfer() == 0u) {
+    shell_output_str(NULL, "\n\rfile open failed\n\r", "");
+    return;
+  }
+  if(cbm_open(XFER_CHN, dev, XFER_CHN, path) != 0) {
     shell_output_str(NULL, "\n\rfile open failed\n\r", "");
     return;
   }
   shell_output_str(NULL, "\n\rXMODEM send - start receiver (CRC)\n\r", "");
+  xfer_flush_outbound();
   bbs_xmodem_io_begin();
   r = bbs_xmodem_send();
   cbm_close(XFER_CHN);
   bbs_xmodem_io_end();
   xfer_msg_result(r);
-}
-
-static void
-xfer_flush_outbound(void)
-{
-  clock_time_t t0;
-
-  t0 = clock_time();
-  while(buf.used != 0u &&
-        (clock_time_t)(clock_time() - t0) < (clock_time_t)(CLOCK_SECOND * 8u)) {
-    bbs_transport_poll();
-  }
+  xfer_flush_outbound();
 }
 
 static void
 xfer_do_recv(const char *path)
 {
   unsigned char r;
+  unsigned char dev;
 
+  dev = board.transfer_device;
   shell_output_str(NULL, "\n\rstart upload\r\n", "");
   xfer_flush_outbound();
-  if(cbm_open(XFER_CHN, board.transfer_device, CBM_WRITE, path) != 0) {
+  if(xfer_cd_transfer() == 0u) {
+    shell_output_str(NULL, "\n\rfile create failed\n\r", "");
+    return;
+  }
+  if(cbm_open(XFER_CHN, dev, CBM_WRITE, path) != 0) {
     shell_output_str(NULL, "\n\rfile create failed\n\r", "");
     return;
   }
@@ -345,40 +422,7 @@ xfer_do_recv(const char *path)
   cbm_close(XFER_CHN);
   bbs_xmodem_io_end();
   xfer_msg_result(r);
-}
-
-static void
-xfer_path_dir(char *out)
-{
-  if(xfer == NULL) {
-    out[0] = 0;
-    return;
-  }
-  strcpy(out, board.transfer_prefix);
-  strcat(out, xfer->cwd);
-  strcat(out, "$");
-}
-
-static void
-xfer_path_file(char *out, const char *name)
-{
-  if(xfer == NULL) {
-    out[0] = 0;
-    return;
-  }
-  strcpy(out, board.transfer_prefix);
-  strcat(out, xfer->cwd);
-  strcat(out, name);
-}
-
-static unsigned char
-xfer_dos_cmd(const char *cmd)
-{
-  if(cbm_open(XFER_CMD, board.transfer_device, XFER_CMD, cmd) != 0) {
-    return 0u;
-  }
-  cbm_close(XFER_CMD);
-  return 1u;
+  xfer_flush_outbound();
 }
 
 static unsigned char
@@ -420,17 +464,12 @@ xfer_bank_cd(const char *path)
   if(s == NULL || path[0] == 0 || xfer_name_ok(path) == 0u) {
     return 0u;
   }
-  strcpy(s->pathbuf, "CD:");
-  strcat(s->pathbuf, path);
-  if(xfer_dos_cmd(s->pathbuf) == 0u) {
-    return 0u;
-  }
   strcpy(s->cwd, path);
   len = (unsigned char)strlen(s->cwd);
   if(len > 0u && s->cwd[len - 1u] != '/') {
     strcat(s->cwd, "/");
   }
-  return 1u;
+  return xfer_cd_transfer();
 }
 
 static unsigned char
@@ -446,94 +485,6 @@ xfer_bank_md(const char *path)
   return xfer_dos_cmd(s->pathbuf);
 }
 #endif /* BBS_BANK_BUILD */
-
-static unsigned char
-xfer_line_is_dir(const char *line, unsigned char len)
-{
-  unsigned char i;
-
-  if(len < 4u) {
-    return 0u;
-  }
-  for(i = 0u; i + 3u < len; ++i) {
-    if(line[i] == 'D' && line[i + 1] == 'I' && line[i + 2] == 'R') {
-      return 1u;
-    }
-    if(line[i] == '<' && line[i + 1] == ' ' && line[i + 2] == 'D') {
-      return 1u;
-    }
-  }
-  return 0u;
-}
-
-static void
-xfer_list_print(void)
-{
-  bbs_xfer_state_t *s = xfer;
-  unsigned char li, c, in_q, i, j;
-  unsigned char listed;
-  int n;
-  char name[BBS_XFER_NAME_LEN];
-
-  if(s == NULL) {
-    return;
-  }
-
-  listed = 0u;
-  xfer_path_dir(s->pathbuf);
-  if(cbm_open(XFER_CHN, board.transfer_device, XFER_CHN, s->pathbuf) != 0) {
-    shell_output_str(NULL, "\n\r (list failed)\n\r", "");
-    return;
-  }
-
-  shell_output_str(NULL, "\n\r", "");
-  li = 0u;
-  in_q = 0u;
-  s->line[0] = 0;
-  while(1) {
-    n = cbm_read(XFER_CHN, &c, 1);
-    if(n <= 0) {
-      break;
-    }
-    if(c == 0x0du || c == 0x0au) {
-      if(li > 0u) {
-        s->line[li] = 0;
-        if(in_q == 2u) {
-          i = 0u;
-          while(s->line[i] != '"' && s->line[i] != 0) {
-            ++i;
-          }
-          if(s->line[i] == '"') {
-            j = 0u;
-            ++i;
-            while(s->line[i] != '"' && s->line[i] != 0 && j < 15u) {
-              name[j++] = s->line[i++];
-            }
-            if(j > 0u && xfer_line_is_dir(s->line, li) != 0u) {
-              name[j++] = '/';
-            }
-            name[j] = 0;
-            if(j > 0u) {
-              shell_output_str(NULL, name, "\n\r");
-              listed = 1u;
-            }
-          }
-        }
-      }
-      li = 0u;
-      in_q = 0u;
-    } else if(li < 39u) {
-      s->line[li++] = (char)c;
-      if(c == '"') {
-        ++in_q;
-      }
-    }
-  }
-  cbm_close(XFER_CHN);
-  if(listed == 0u) {
-    shell_output_str(NULL, " (empty)\n\r", "");
-  }
-}
 
 #if !defined(BBS_BANK_BUILD)
 static unsigned char
@@ -563,7 +514,7 @@ xfer_cd_local(const char *arg)
         break;
       }
     }
-    return xfer_dos_cmd("CD:_");
+    return xfer_cd_transfer();
   }
   len = (unsigned char)strlen(s->cwd);
   if(len + strlen(arg) + 2u >= BBS_XFER_PATH_LEN) {
@@ -573,81 +524,98 @@ xfer_cd_local(const char *arg)
     strcat(s->cwd, "/");
   }
   strcat(s->cwd, arg);
-  strcpy(s->cmd, "CD:");
-  strcat(s->cmd, arg);
-  return xfer_dos_cmd(s->cmd);
+  if(s->cwd[strlen(s->cwd) - 1u] != '/') {
+    strcat(s->cwd, "/");
+  }
+  return xfer_cd_transfer();
 }
 #endif /* !BBS_BANK_BUILD */
 
-/*---------------------------------------------------------------------------*/
-PROCESS(bbs_xfer_process, "xfer");
-SHELL_COMMAND(bbs_xfer_list_command, "$", "$ : list dir", &bbs_xfer_process);
-SHELL_COMMAND(bbs_xfer_dl_command, "d", "d : download file", &bbs_xfer_process);
-SHELL_COMMAND(bbs_xfer_ul_command, "u", "u : upload file", &bbs_xfer_process);
-SHELL_COMMAND(bbs_xfer_cd_command, "cd", "cd : change dir", &bbs_xfer_process);
-SHELL_COMMAND(bbs_xfer_md_command, "md", "md : make dir", &bbs_xfer_process);
-/*---------------------------------------------------------------------------*/
-PROCESS_THREAD(bbs_xfer_process, ev, data)
+#if defined(BBS_BANK_BUILD)
+static void
+xfer_dirlist(void)
 {
   bbs_xfer_state_t *s = xfer;
-  struct shell_input *input;
+  unsigned char listed = 0u;
+  unsigned char li = 0u;
+  unsigned char c;
+  unsigned char dev;
+  int nr;
+
+  if(s == NULL || xfer_cd_transfer() == 0u) {
+    shell_output_str(NULL, "\n\r (list failed)\n\r", "");
+    return;
+  }
+  dev = board.transfer_device;
+  cbm_close(XFER_CHN);
+  if(cbm_open(XFER_CHN, dev, 0u, "$") != 0) {
+    cbm_close(XFER_CHN);
+    if(cbm_open(XFER_CHN, dev, XFER_CHN, "$") != 0) {
+      shell_output_str(NULL, "\n\r (list failed)\n\r", "");
+      return;
+    }
+  }
+  shell_output_str(NULL, "\n\r", "");
+  for(;;) {
+    nr = cbm_read(XFER_CHN, &c, 1);
+    if(nr <= 0) {
+      break;
+    }
+    if(c == 0x0du || c == 0x0au) {
+      if(li > 0u && s->pathbuf[0] != 'B') {
+        s->pathbuf[li] = 0;
+        shell_output_str(NULL, s->pathbuf, "");
+        listed = 1u;
+        xfer_flush_outbound();
+      }
+      li = 0u;
+    } else if(li < (BBS_FILE_PATH_BUFLEN - 1u)) {
+      s->pathbuf[li++] = (char)c;
+    }
+  }
+  cbm_close(XFER_CHN);
+  if(listed == 0u) {
+    shell_output_str(NULL, " (empty)\n\r", "");
+  }
+}
+
+static void
+bbs_xfer_dispatch(void)
+{
+  bbs_xfer_state_t *s = xfer;
   const char *op;
   const char *path;
 
-  PROCESS_BEGIN();
-  if(s == NULL) {
-    PROCESS_EXIT();
-  }
-  op = s->op_line;
-#if defined(BBS_BANK_BUILD)
-  shell_output_str(NULL, PETSCII_LOWER, PETSCII_WHITE);
-
-  if(op != NULL && op[0] == (char)'$' && op[1] == 0) {
-    xfer_list_print();
-    PROCESS_EXIT();
+  if(s == NULL || (op = s->op_line) == NULL) {
+    return;
   }
 
-  if(op != NULL && op[0] == (char)'d' &&
-      (op[1] == 0 || op[1] == ' ')) {
+  if(op[0] == (char)'d' && (op[1] == 0 || op[1] == ' ')) {
     path = xfer_op_arg_after(op, 1u);
     if(path[0] == 0 || xfer_name_ok(path) == 0u) {
       shell_output_str(NULL, "\n\rinvalid name\n\r", "");
-    } else {
-      xfer_path_file(s->pathbuf, path);
-      xfer_do_send(s->pathbuf);
+      return;
     }
-    PROCESS_EXIT();
+    strcpy(s->pathbuf, path);
+    xfer_do_send(s->pathbuf);
+    return;
   }
 
-  if(op != NULL && op[0] == (char)'u' && op[1] == 0) {
-    shell_prompt("\n\rfile name (max 16): ");
-    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
-    input = data;
-    if(xfer_name_ok(input->data1) != 0u) {
-      xfer_path_file(s->pathbuf, input->data1);
-      xfer_do_recv(s->pathbuf);
-    } else {
-      shell_output_str(NULL, "\n\rinvalid name\n\r", "");
-    }
-    PROCESS_EXIT();
-  }
-
-  if(op != NULL && op[0] == (char)'c' && op[1] == (char)'d' &&
+  if(op[0] == (char)'c' && op[1] == (char)'d' &&
       (op[2] == 0 || op[2] == ' ')) {
     path = xfer_op_arg_after(op, 2u);
     if(xfer_bank_cd(path) != 0u) {
       strcpy(s->pathbuf, "\n\rnow: ");
       strcat(s->pathbuf, board.transfer_prefix);
       strcat(s->pathbuf, s->cwd);
-      strcat(s->pathbuf, "\n\r");
-      shell_output_str(NULL, s->pathbuf, "");
+      shell_output_str(NULL, s->pathbuf, "\n\r");
     } else {
       shell_output_str(NULL, "\n\rcd failed\n\r", "");
     }
-    PROCESS_EXIT();
+    return;
   }
 
-  if(op != NULL && op[0] == (char)'m' && op[1] == (char)'d' &&
+  if(op[0] == (char)'m' && op[1] == (char)'d' &&
       (op[2] == 0 || op[2] == ' ')) {
     path = xfer_op_arg_after(op, 2u);
     if(xfer_bank_md(path) != 0u) {
@@ -655,15 +623,52 @@ PROCESS_THREAD(bbs_xfer_process, ev, data)
     } else {
       shell_output_str(NULL, "\n\rmd failed\n\r", "");
     }
+    return;
+  }
+
+  if(op[0] == (char)'$' && op[1] == 0) {
+    xfer_dirlist();
+  }
+}
+#endif /* BBS_BANK_BUILD */
+
+/*---------------------------------------------------------------------------*/
+PROCESS(bbs_xfer_process, "xfer");
+SHELL_COMMAND(bbs_xfer_dl_command, "d", "d : download file", &bbs_xfer_process);
+SHELL_COMMAND(bbs_xfer_ul_command, "u", "u : upload file", &bbs_xfer_process);
+SHELL_COMMAND(bbs_xfer_cd_command, "cd", "cd : change dir", &bbs_xfer_process);
+SHELL_COMMAND(bbs_xfer_md_command, "md", "md : make dir", &bbs_xfer_process);
+SHELL_COMMAND(bbs_xfer_ls_command, "$", "$ : list dir", &bbs_xfer_process);
+/*---------------------------------------------------------------------------*/
+PROCESS_THREAD(bbs_xfer_process, ev, data)
+{
+  bbs_xfer_state_t *s = xfer;
+  struct shell_input *input;
+  const char *op;
+#if !defined(BBS_BANK_BUILD)
+  const char *path;
+#endif
+
+  PROCESS_BEGIN();
+  if(s == NULL) {
+    PROCESS_EXIT();
+  }
+  op = s->op_line;
+#if defined(BBS_BANK_BUILD)
+  if(op != NULL && op[0] == (char)'u' && op[1] == 0) {
+    shell_prompt("\n\rfile name (max 16): ");
+    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
+    input = data;
+    if(xfer_name_ok(input->data1) != 0u) {
+      strcpy(s->pathbuf, input->data1);
+      xfer_do_recv(s->pathbuf);
+    } else {
+      shell_output_str(NULL, "\n\rinvalid name\n\r", "");
+    }
     PROCESS_EXIT();
   }
 #else
   shell_output_str(NULL, PETSCII_LOWER, PETSCII_WHITE);
-
-  if(op != NULL && op[0] == (char)'$') {
-    xfer_list_print();
-    PROCESS_EXIT();
-  }
 
   if(op != NULL && op[0] == (char)'d' &&
       (op[1] == 0 || op[1] == ' ')) {
@@ -671,7 +676,7 @@ PROCESS_THREAD(bbs_xfer_process, ev, data)
     if(path[0] == 0 || xfer_name_ok(path) == 0u) {
       shell_output_str(NULL, "\n\rinvalid name\n\r", "");
     } else {
-      xfer_path_file(s->pathbuf, path);
+      strcpy(s->pathbuf, path);
       xfer_do_send(s->pathbuf);
     }
     PROCESS_EXIT();
@@ -682,7 +687,7 @@ PROCESS_THREAD(bbs_xfer_process, ev, data)
     PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
     input = data;
     if(xfer_name_ok(input->data1) != 0u) {
-      xfer_path_file(s->pathbuf, input->data1);
+      strcpy(s->pathbuf, input->data1);
       xfer_do_recv(s->pathbuf);
     } else {
       shell_output_str(NULL, "\n\rinvalid name\n\r", "");
@@ -747,12 +752,13 @@ bbs_xfer_init(void)
   xfer->rx_head = xfer->rx_tail = 0u;
   xfer->rx_base = NULL;
   xfer->rx_size = 0u;
-  shell_register_command(&bbs_xfer_list_command);
+  (void)xfer_cd_transfer();
   shell_register_command(&bbs_xfer_dl_command);
   shell_register_command(&bbs_xfer_ul_command);
 #if defined(BBS_BANK_BUILD)
   shell_register_command(&bbs_xfer_cd_command);
   shell_register_command(&bbs_xfer_md_command);
+  shell_register_command(&bbs_xfer_ls_command);
 #else
   if(board.dir_boost == 1u) {
     shell_register_command(&bbs_xfer_cd_command);
@@ -770,12 +776,13 @@ bbs_xfer_deinit(void)
     xfer->rx_base = NULL;
     xfer->rx_size = 0u;
   }
-  shell_unregister_command(&bbs_xfer_list_command);
   shell_unregister_command(&bbs_xfer_dl_command);
   shell_unregister_command(&bbs_xfer_ul_command);
   shell_unregister_command(&bbs_xfer_cd_command);
   shell_unregister_command(&bbs_xfer_md_command);
-#if !defined(BBS_XFER_MODULE) && !defined(BBS_BANK_BUILD)
+#if defined(BBS_BANK_BUILD)
+  shell_unregister_command(&bbs_xfer_ls_command);
+#elif !defined(BBS_XFER_MODULE)
   if(xfer != NULL) {
     free(xfer);
   }
