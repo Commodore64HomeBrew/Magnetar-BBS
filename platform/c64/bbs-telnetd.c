@@ -32,7 +32,6 @@
  */
 
 #include <string.h>
-#include <conio.h>
 
 #include "sys/timer.h"
 #include "sys/cc.h"
@@ -314,7 +313,7 @@ buf_ack_sent(unsigned int n)
   buf.used -= n;
   if(buf.used == 0u && bbs_status.status != STATUS_STREAM &&
       bbs_status.status != STATUS_XFER) {
-    clrscr();
+    log_message("\x93", "");
   }
 }
 
