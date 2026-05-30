@@ -6,8 +6,6 @@ EOT     = $04
 ACK     = $06
 NAK     = $15
 ESC     = $1b
-CR      = $0d
-LF      = $0a
 
 .import _bbs_xmodem_poll
 .import _bbs_xmodem_putc

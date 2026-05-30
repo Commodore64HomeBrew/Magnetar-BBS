@@ -1033,13 +1033,9 @@ start_command(char *commandline, struct shell_command *child)
         command_kill(child);
         return NULL;
       }
-      if(command_len == 1u && commandline[0] == 'u') {
-        process_start(c->process, NULL);
-      } else {
-        bbs_transport_flush_outbound();
-        command_kill(child);
-        c = NULL;
-      }
+      bbs_transport_flush_outbound();
+      command_kill(child);
+      c = NULL;
     } else if(bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_UI) {
       if(bbs_ui_prepare_command(commandline) == 0u) {
         command_kill(child);
