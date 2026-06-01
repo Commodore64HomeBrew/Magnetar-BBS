@@ -86,6 +86,14 @@
 #define BBS_STATS_USRS			5
 #define BBS_STATS_FILE         "bbs-stats"
 
+/* Fixed on-disk field sizes; usable chars are length minus one (NUL). */
+#define BBS_USER_NAME_LEN      12u
+#define BBS_USER_NAME_MAX      (BBS_USER_NAME_LEN - 1u)
+#define BBS_USER_PWD_LEN       20u
+#define BBS_USER_PWD_MAX       (BBS_USER_PWD_LEN - 1u)
+#define BBS_CALLER_NAME_LEN    12u
+#define BBS_CALLER_NAME_MAX    (BBS_CALLER_NAME_LEN - 1u)
+
 #define BBS_LOG_FILE           "bbs-log"
 
 #define BBS_CFG_FILE           "bbs-cfg"

@@ -5,7 +5,7 @@ import re
 import sys
 
 CORE_HIMEM = 0xB000
-CORE_STACK = 0x0200
+CORE_STACK = 0x0400
 CORE_MIN_GAP = 256
 
 BANK_BASE = 0xB000

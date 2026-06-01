@@ -136,6 +136,8 @@ bbs_sub_banner_core(void)
   shell_output_str(NULL, (char *)message, "");
 }
 /*---------------------------------------------------------------------------*/
+static void bbs_sysstats_sanitize(void);
+
 static void bbs_init(void) 
 {
   unsigned short fsize;
@@ -221,10 +223,40 @@ static void bbs_init(void)
     bbs_sysstats.day_ptr = 0;
   }
 
+  bbs_sysstats_sanitize();
   bbs_defaults();
 }
 /*---------------------------------------------------------------------------*/
 /* moved to bbs-msg-extra.c (msg module) */
+
+static void
+bbs_copy_field(unsigned char *dst, unsigned char dst_len, const char *src)
+{
+  unsigned char n;
+
+  if(dst_len == 0u) {
+    return;
+  }
+  n = (unsigned char)strlen(src);
+  if(n >= dst_len) {
+    n = (unsigned char)(dst_len - 1u);
+  }
+  memcpy(dst, src, (size_t)n);
+  dst[n] = 0;
+}
+
+static void
+bbs_sysstats_sanitize(void)
+{
+  unsigned char i;
+
+  if(bbs_sysstats.caller_ptr >= BBS_STATS_USRS) {
+    bbs_sysstats.caller_ptr = 0;
+  }
+  for(i = 0u; i < BBS_STATS_USRS; ++i) {
+    bbs_sysstats.last_callers[i][BBS_CALLER_NAME_MAX] = 0;
+  }
+}
 
 static void
 bbs_record_last_caller(void)
@@ -232,7 +264,8 @@ bbs_record_last_caller(void)
   if(++bbs_sysstats.caller_ptr >= BBS_STATS_USRS) {
     bbs_sysstats.caller_ptr = 0;
   }
-  strcpy(bbs_sysstats.last_callers[bbs_sysstats.caller_ptr], bbs_user.user_name);
+  bbs_copy_field(bbs_sysstats.last_callers[bbs_sysstats.caller_ptr],
+      BBS_CALLER_NAME_LEN, (const char *)bbs_user.user_name);
 }
 /*---------------------------------------------------------------------------*/
 /* moved to bbs-msg-extra.c (msg module) */
@@ -311,7 +344,7 @@ int bbs_get_user(char *data)
 	unsigned short siRet=0;
 	unsigned char file[25];
 
-	strcpy(bbs_user.user_name, data);
+	bbs_copy_field(bbs_user.user_name, BBS_USER_NAME_LEN, data);
 
 	sprintf(file, "%s:u-%s", board.user_prefix, bbs_user.user_name);
 
@@ -319,6 +352,8 @@ int bbs_get_user(char *data)
 	cbm_read(10, &bbs_user, 2);
 	fsize = cbm_read(10, &bbs_user, sizeof(bbs_user));
 	cbm_close(10);
+	bbs_user.user_name[BBS_USER_NAME_MAX] = 0;
+	bbs_user.user_pwd[BBS_USER_PWD_MAX] = 0;
 
 	if (fsize > 0) {
 		log_message("\x99login: ", bbs_user.user_name);
@@ -336,7 +371,7 @@ int bbs_new_user(char *data)
 	//unsigned char i;
 	//unsigned char file[25];
 
-	strcpy(bbs_user.user_pwd, data);
+	bbs_copy_field(bbs_user.user_pwd, BBS_USER_PWD_LEN, data);
 	bbs_user.access_req = 1;
 
 
@@ -440,7 +475,13 @@ static void
 login_stats_continue(void)
 {
   bbs_record_last_caller();
-  /* UI bank runs at $B000 and overlaps uIP BSS; do not load during TCP login. */
+  if(bbs_bank_load(BBS_BANK_ID_UI) != 0u &&
+     BBS_BANK_HDR->run_sys_stats != NULL) {
+    BBS_BANK_HDR->run_sys_stats();
+  } else {
+    shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
+  }
+  bbs_transport_flush_outbound();
   shell_output_str(NULL, "\r\n\x9ehit return to continue", "");
   bbs_status.status = STATUS_STATS;
 }
@@ -458,9 +499,11 @@ PROCESS_THREAD(bbs_login_process, ev, data)
     PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || ev == PROCESS_EVENT_TIMER);
 
     if (ev == PROCESS_EVENT_TIMER) {
-       //bbs_unlock();
-       shell_stop();
-       log_message("\x9a","event timer");
+      /* Login timeout only; session timeout is broadcast to shell_process. */
+      if(bbs_status.status <= STATUS_HANDLE) {
+        shell_stop();
+        log_message("\x9a","event timer");
+      }
     }
     if (ev == shell_event_input) {
       input = data;
@@ -522,8 +565,8 @@ PROCESS_THREAD(bbs_login_process, ev, data)
           }
 
           case STATUS_HANDLE: {
-            if((int)strlen(input->data1)>12){
-              shell_output_str(NULL, "\r\nhandle can't be longer than 12 chars.", "");
+            if((int)strlen(input->data1) > (int)BBS_USER_NAME_MAX){
+              shell_output_str(NULL, "\r\nhandle can't be longer than 11 chars.", "");
               shell_prompt("\n\rhandle: ");
               bbs_status.status=STATUS_HANDLE;
               break;
@@ -566,13 +609,16 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             break;
           }
           case STATUS_NEWUSR: {
-           	  bbs_new_user(input->data1);
-              
-              shell_output_str(NULL,"\n\r\n\rhandle:   " , bbs_user.user_name);
-              shell_output_str(NULL,"\n\rpassword: " , bbs_user.user_pwd);
-
-              bbs_status.status=STATUS_CONFUSR;
-              shell_prompt("\n\r\n\rcorrect (y/n): ");
+            if((int)strlen(input->data1) > (int)BBS_USER_PWD_MAX) {
+              shell_output_str(NULL, "\r\npassword can't be longer than 19 chars.", "");
+              shell_prompt("\n\rpassword: ");
+              break;
+            }
+            bbs_new_user(input->data1);
+            shell_output_str(NULL, "\n\r\n\rhandle:   ", (char *)bbs_user.user_name);
+            shell_output_str(NULL, "\n\rpassword: ", (char *)bbs_user.user_pwd);
+            bbs_status.status=STATUS_CONFUSR;
+            shell_prompt("\n\r\n\rcorrect (y/n): ");
           	break;
           }
           case STATUS_CONFUSR: {
