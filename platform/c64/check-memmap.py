@@ -7,6 +7,7 @@ import sys
 CORE_HIMEM = 0xB000
 CORE_STACK = 0x0400
 CORE_MIN_GAP = 256
+BBS_SHARED_BASE = 0xA280
 
 BANK_BASE = 0xB000
 BANK_TOP = 0xD000
@@ -33,8 +34,18 @@ def parse_segments(path, names):
     return segs
 
 
+def parse_symbol_addr(map_path, symbol):
+    pat = re.compile(rf"^{re.escape(symbol)}\s+([0-9A-Fa-f]{{6}})\s+RL")
+    with open(map_path, encoding="ascii", errors="replace") as f:
+        for line in f:
+            m = pat.match(line.strip())
+            if m:
+                return int(m.group(1), 16)
+    return None
+
+
 def check_core(map_path, bin_path):
-    segs = parse_segments(map_path, ["BSS", "CODE", "DATA", "INIT"])
+    segs = parse_segments(map_path, ["BSS", "SHARED", "LOWBSS", "CODE", "DATA", "INIT"])
     bss = segs.get("BSS")
     if bss is None:
         raise SystemExit(f"{map_path}: missing BSS segment")
@@ -52,8 +63,28 @@ def check_core(map_path, bin_path):
         )
     if bss_end > CORE_HIMEM:
         raise SystemExit(f"core BSS ends ${bss_end - 1:04X}, above bank base ${CORE_HIMEM:04X}")
+
+    shared = segs.get("SHARED")
+    lowbss = parse_segments(map_path, ["LOWBSS"]).get("LOWBSS")
+    if lowbss is not None and lowbss[1] > BBS_SHARED_BASE:
+        raise SystemExit(
+            f"LOWBSS ends ${lowbss[1] - 1:04X}, intrudes SHARED at ${BBS_SHARED_BASE:04X}"
+        )
+    if shared is None:
+        raise SystemExit(f"{map_path}: missing SHARED segment")
+    if shared[0] != BBS_SHARED_BASE:
+        raise SystemExit(
+            f"SHARED at ${shared[0]:04X}, expected fixed ABI ${BBS_SHARED_BASE:04X}"
+        )
+    if bss[0] < shared[1] and bss_end > shared[0]:
+        raise SystemExit(
+            f"BSS ${bss[0]:04X}-${bss_end - 1:04X} overlaps SHARED "
+            f"${shared[0]:04X}-${shared[1] - 1:04X}"
+        )
+
     print(
-        f"core OK: BSS ${bss[0]:04X}-${bss_end - 1:04X}, "
+        f"core OK: SHARED ${shared[0]:04X}-${shared[1] - 1:04X}, "
+        f"BSS ${bss[0]:04X}-${bss_end - 1:04X}, "
         f"stack gap {gap} B, bank gap {CORE_HIMEM - bss_end} B"
     )
 

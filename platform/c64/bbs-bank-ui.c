@@ -8,6 +8,10 @@ bbs_ui_set_op(const char *cmd)
   if(cmd == 0 || cmd[0] == 0) {
     return;
   }
+#ifndef BBS_SERIAL_TRANSPORT
+  bbs_transport_flush_outbound();
+  bbs_transport_buf_reset();
+#endif
   switch(cmd[0]) {
   case 'x':
     bbs_msg_system_stats();

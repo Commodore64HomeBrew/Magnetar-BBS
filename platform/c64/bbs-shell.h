@@ -397,19 +397,6 @@ struct shell_input {
 #include "bbs-file.h"
 //#include "bbs-page.h"
 //#include "bbs-blist.h"
-#ifndef BBS_USE_RESIDENT
-#include "bbs-read.h"
-#include "bbs-setboard.h"
-#include "bbs-post.h"
-
-/* Core-owned session globals (shared with helper modules). */
-extern BBS_STATUS_REC bbs_status;
-
-/* Post-module handler hooks (set by bbs-post.mod at init). */
-extern unsigned char (*bbs_post_begin_h)(void);
-extern void (*bbs_post_on_input_h)(const struct shell_input *in);
-extern void (*bbs_post_cancel_h)(void);
-#endif /* !BBS_USE_RESIDENT */
 
 #endif /* __SHELL_H__ */
 

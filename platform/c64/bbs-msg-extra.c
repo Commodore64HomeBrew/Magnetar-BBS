@@ -115,9 +115,6 @@ bbs_msg_system_stats(void)
 
   if(buf_putc_raw(PETSCII_REVOFF) < 0) { goto stats_chart_done; }
   if(buf_putc_raw(ISO_cr) < 0) { goto stats_chart_done; }
-  if(buf.used < buf.size) {
-    buf.bufmem[(buf.head + buf.used) % buf.size] = 0;
-  }
 
 stats_chart_done:
   total_msgs = 0u;
@@ -128,7 +125,6 @@ stats_chart_done:
   shell_output_str(NULL, "\r\n\x9etotal msgs:\x05 ", "");
   bbs_u16_to_dec(total_msgs, message);
   shell_output_str(NULL, (char *)message, "");
-  bbs_transport_flush_outbound();
 }
 
 PROCESS(sys_stats_process, "sysstats");

@@ -1,6 +1,6 @@
 /*
  * Magnetar BBS: compile-time network settings (CS8900A / RR-Net).
- * Edit defaults below or copy values from the BBS setup program, then rebuild.
+ * Edit defaults in magnetar-netcfg.c, then rebuild.
  */
 
 #ifndef MAGNETAR_NETCFG_H_

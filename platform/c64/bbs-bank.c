@@ -11,7 +11,7 @@ extern int buf_putc_raw(unsigned char c);
 #include <stdio.h>
 #include <string.h>
 
-#define BBS_BANK_LOAD_CHN  10
+#define BBS_BANK_LOAD_CHN  BBS_FILE_CHANNEL
 
 /* Off: screen RAM is telnet outbound; XMODEM uses a partition during STATUS_XFER. */
 #define BBS_BANK_DEBUG  0
@@ -167,11 +167,11 @@ bbs_shared_clock_time(void)
 }
 
 extern BBS_BUFFER buf;
-extern volatile bbs_shared_t *bbs_shared_mailbox;
 extern int shell_event_input;
 
 static unsigned char bbs_bank_loaded;
 static unsigned char bbs_bank_cur_id;
+static unsigned char bbs_shared_inited;
 
 void
 bbs_bank_hw_enable_for_exec(void)
@@ -202,9 +202,12 @@ bbs_bank_filename(unsigned char bank_id)
 }
 
 void
-bbs_shared_publish(void)
+bbs_shared_init(void)
 {
-  bbs_shared_mailbox = &bbs_shared_data;
+  if(bbs_shared_inited != 0u) {
+    return;
+  }
+  bbs_shared_inited = 1u;
   BBS_SHARED->sig0 = 'B';
   BBS_SHARED->sig1 = 'S';
   BBS_SHARED->active_bank = 0u;
@@ -216,6 +219,10 @@ bbs_shared_publish(void)
   BBS_SHARED->shell_unregister_command = shell_unregister_command;
   BBS_SHARED->transport_poll = bbs_transport_poll;
   BBS_SHARED->transport_flush_outbound = bbs_transport_flush_outbound;
+  BBS_SHARED->transport_buf_reset = bbs_transport_buf_reset;
+  BBS_SHARED->scr_layout_output = bbs_scr_layout_output;
+  BBS_SHARED->scr_layout_xfer = bbs_scr_layout_xfer;
+  BBS_SHARED->stream_begin = bbs_stream_begin;
   BBS_SHARED->buf_append = buf_append;
   BBS_SHARED->buf_putc_raw = buf_putc_raw;
   BBS_SHARED->clock_time = bbs_shared_clock_time;
@@ -231,12 +238,6 @@ bbs_shared_publish(void)
 #else
   BBS_SHARED->serial_flush_outbound = NULL;
 #endif
-}
-
-void
-bbs_shared_sync_back(void)
-{
-  /* Embedded structs: no copy; publish only refreshes pointers/callbacks. */
 }
 
 unsigned char
@@ -265,7 +266,7 @@ bbs_bank_load(unsigned char bank_id)
     bbs_bank_unload();
   }
 
-  bbs_shared_publish();
+  bbs_shared_init();
 
 #if BBS_BANK_DEBUG
   bbs_bank_dbg_clear();
@@ -326,6 +327,13 @@ bbs_bank_load(unsigned char bank_id)
     bbs_bank_unload();
     goto load_failed;
   }
+  /* Reset ring after bank swap; flush first only when replacing another bank. */
+#ifndef BBS_SERIAL_TRANSPORT
+  if(had_bank != 0u) {
+    bbs_transport_flush_outbound();
+  }
+#endif
+  bbs_transport_buf_reset();
 #if BBS_BANK_DEBUG
   bbs_bank_dbg_ok(bank_id, total, filename);
 #endif
@@ -344,6 +352,12 @@ bbs_bank_unload(void)
   if(bbs_bank_loaded != 0u && BBS_BANK_HDR->deinit != NULL) {
     BBS_BANK_HDR->deinit();
   }
+  bbs_bank_forget();
+}
+
+void
+bbs_bank_forget(void)
+{
   BBS_SHARED->active_bank = 0u;
   bbs_bank_loaded = 0u;
   bbs_bank_cur_id = 0u;

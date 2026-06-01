@@ -24,20 +24,29 @@
 #define BBS_40_COL	           	38
 #define BBS_22_COL	           	20
 /* One telnet line + NUL; 128 is enough for BBS commands and wrapped post lines. */
-#define TELNETD_CONF_LINELEN 	 255
-#define TELNETD_CONF_NUMLINES 	25
+#define TELNETD_CONF_LINELEN 	 128
+#define TELNETD_CONF_NUMLINES 	16
 
-/* Stream chunk size; movie UI caps speed at 10. */
+/* Stream chunk size; movie UI caps speed at 10 (serial throttle). */
 #define MAX_STREAM_SPEED        10
+#ifndef BBS_SERIAL_TRANSPORT
+/* TCP: read/send a full segment per ACK (serial uses MAX_STREAM_SPEED). */
+#define TELNETD_STREAM_CHUNK    256
+#endif
 
-/* Outbound ring lives in C64 screen RAM ($0400-$07E7, 1000 bytes). */
+/* KERNAL file channel 10 is shared by banners, config, and bank loads. */
+#define BBS_FILE_CHANNEL        10
+/* Movies use a dedicated channel so streaming does not fight bank I/O. */
+#define BBS_MEDIA_CHANNEL       11
+
+/* Screen RAM $0400-$07E7: either full 1 KiB telnet ring OR xfer partition (not both). */
 #define BBS_BUFFER_SCR_BASE     0x0400u
 #define BBS_BUFFER_SCR_LAST     0x07E7u
 #ifndef BBS_BUFFER_SIZE
 #define BBS_BUFFER_SIZE         (BBS_BUFFER_SCR_LAST - BBS_BUFFER_SCR_BASE + 1u)
 #endif
 
-/* XMODEM + inbound staging in the same screen window during STATUS_XFER. */
+/* XMODEM layout (STATUS_XFER only): [RX 128][TX ..][XMODEM 132 at $0764]. */
 #define BBS_XMODEM_RBUF_SIZE    132u
 #define BBS_XFER_SCR_RX_SIZE    128u
 #define BBS_XMODEM_RBUF_BASE    (BBS_BUFFER_SCR_LAST + 1u - BBS_XMODEM_RBUF_SIZE)
@@ -125,6 +134,7 @@
 #define STATUS_READ	9
 #define STATUS_STREAM  10
 #define STATUS_XFER    11
+#define STATUS_LOGIN_RUN 12
 
 /* File transfer area (under board.transfer_prefix). */
 #define BBS_XFER_MAX_FILES  4

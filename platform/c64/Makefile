@@ -26,7 +26,7 @@ else
 DEFINES := WITH_LOGGING,WITH_PFS,MAGNETAR_BBS,TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,STATIC_DRIVER=c64_swlink_ser
 endif
 CFLAGS += -DCONNECTIONS=1 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=128 -DUIP_CONF_TCP_MSS=64
-PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-fmt.c bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-fmt.c bbs-shared-reserve.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
 magnetar-serial: banks
 ifeq ($(BBS_SERIAL_FLAVOR),2)
 PROJECT_SOURCEFILES += vendor/up2400/c64-up2400.S
@@ -38,11 +38,12 @@ contiki-bbs: banks
 CONTIKI_NET_MINIMAL := 1
 BBS_HEADLESS := 1
 CONTIKI_BBS_MINIMAL := 1
-PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-fmt.c bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-fmt.c bbs-shared-reserve.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
 endif
 
 all: $(CONTIKI_PROJECT) banks memcheck
 
+# Banks: bbs-bankN.bin (raw images at $B000), not legacy .mod relocatables.
 banks: bbs-bank1.bin bbs-bank2.bin bbs-bank3.bin bbs-bank4.bin
 
 .PHONY: memcheck
@@ -63,8 +64,9 @@ BANK_CC65_LIB = $(OBJECTDIR)/c64-bank.lib
 
 ifeq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
 # WITH_PFS: contiki.cfg and //x/ BBS paths via cfs_open (not cbm_* during boot).
-DEFINES = WITH_LOGGING,WITH_PFS,TELNETD_CONF_REJECT,UIP_CONF_LOGGING=0,MAGNETAR_BBS,STATIC_DRIVER=cs8900a
-CFLAGS += -DCONNECTIONS=2 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=606 -DUIP_CONF_TCP_MSS=536 -DUIP_CONF_ARPTAB_SIZE=2 -DUIP_CONF_ICMP=0 -DUIP_CONF_STATISTICS=0
+DEFINES = WITH_LOGGING,WITH_PFS,TELNETD_CONF_REJECT,UIP_CONF_LOGGING=0,MAGNETAR_BBS,MAGNETAR_STATIC_NETCFG,STATIC_DRIVER=cs8900a
+CFLAGS += -DCONNECTIONS=2 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=256 -DUIP_CONF_TCP_MSS=180 -DUIP_CONF_ARPTAB_SIZE=2 -DUIP_CONF_ICMP=0 -DUIP_CONF_STATISTICS=0
+PROJECT_SOURCEFILES += magnetar-netcfg.c
 CONTIKI_WITH_IPV4  = 1
 CONTIKI_WITH_IPV6  = 0
 CONTIKI_WITH_RIME  = 0
@@ -119,6 +121,8 @@ CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFI
 cs8900a.eth lan91c96.eth w5100.eth:
 	@:
 else
+CONTIKI_SOURCEFILES := $(filter-out config.c,$(CONTIKI_SOURCEFILES))
+CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFILES)}}
 %.eth: $(OBJECTDIR)/%.o
 	@echo "  LD       " $@
 	$(Q)$(LD) -o $@ -t module -m $@.map $< $(CC65_LIB)

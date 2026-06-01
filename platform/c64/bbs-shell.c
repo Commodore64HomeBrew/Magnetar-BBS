@@ -11,6 +11,9 @@
 
 #include "contiki.h"
 #include "contiki-lib.h"
+
+#pragma bss-name("LOWBSS")
+
 #include "bbs-resident.h"
 #include "bbs-shell.h"
 #include "bbs-encodings.h"
@@ -51,11 +54,9 @@ PROCESS(bbs_timer_process, "timer");
 PROCESS(bbs_login_process, "login");
 SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_process);
 
-#ifdef BBS_SERIAL_TRANSPORT
-/* post_synch from telnet flush would re-enter a child PT (e.g. prevmsg/read); defer with process_post. */
-static char shell_serial_input_line[TELNETD_CONF_LINELEN + 1];
-static struct shell_input shell_serial_input_holder;
-#endif
+/* post_synch from telnet would re-enter login/bank PT; defer with process_post. */
+static char shell_deferred_input_line[TELNETD_CONF_LINELEN + 1];
+static struct shell_input shell_deferred_input_holder;
 
 /*---------------------------------------------------------------------------*/
 PROCESS(version_process, "version");
@@ -127,8 +128,8 @@ void set_prompt(void)
 static void
 bbs_sub_banner_core(void)
 {
-  unsigned char message[32];
-  unsigned char file[12];
+  static unsigned char message[32];
+  static unsigned char file[12];
 
   sprintf((char *)file, "%s%d", BBS_PREFIX_SUB, bbs_status.board_id);
   bbs_banner(board.sys_prefix, file, bbs_status.encoding_suffix, board.sys_device, 0);
@@ -227,8 +228,6 @@ static void bbs_init(void)
   bbs_defaults();
 }
 /*---------------------------------------------------------------------------*/
-/* moved to bbs-msg-extra.c (msg module) */
-
 static void
 bbs_copy_field(unsigned char *dst, unsigned char dst_len, const char *src)
 {
@@ -268,8 +267,6 @@ bbs_record_last_caller(void)
       BBS_CALLER_NAME_LEN, (const char *)bbs_user.user_name);
 }
 /*---------------------------------------------------------------------------*/
-/* moved to bbs-msg-extra.c (msg module) */
-//---------------------------------------------------------------------------
 void save_stats(void)
 {
 	unsigned char file[25];
@@ -317,7 +314,7 @@ void bbs_lock(void)
 void bbs_unlock(void)
 {
   //char message[20];
-  log_message("\x1e","disconnect");
+  log_message("\x1e","bbs disconnect");
 
   //Change border colour to black
   bordercolor(0);
@@ -327,7 +324,8 @@ void bbs_unlock(void)
   //Clean up any open files
   /* Do not clear stream sent count mid-logout: ACK path still drains buf.
      Clearing it retriggers the same outbound bytes → duplicate/garbled art. */
-  cbm_close(10);
+  cbm_close(BBS_FILE_CHANNEL);
+  cbm_close(BBS_MEDIA_CHANNEL);
 
 
 
@@ -404,14 +402,15 @@ int bbs_save_user()
 
 void bbs_login()
 {
-
+	static unsigned char file[25];
+	static unsigned char message[80];
 	unsigned short siRet=0;
-	unsigned char file[25];
-	unsigned char message[80];
 	unsigned char k;
 	unsigned short total_msgs=0, user_msgs=0, unread_msgs=0;
 
  	//**********************************************************************
+	telnetd_discard_pending_rx();
+	bbs_transport_buf_reset();
 	process_exit(&bbs_timer_process);
 	bbs_status.status=STATUS_LOCK;
 
@@ -458,8 +457,12 @@ void bbs_login()
 	shell_output_str(NULL, "\r\n\x05? \x9fto list commands", "");
 	shell_output_str(NULL, "\x05s \x9eselect msg board\r\n", "");
 
-	if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
-		shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
+	if(bbs_bank_id_active() != BBS_BANK_ID_MSG) {
+		if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
+			shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
+		} else {
+			bbs_transport_buf_reset();
+		}
 	}
 
 	//Display the sub banner:
@@ -475,13 +478,20 @@ static void
 login_stats_continue(void)
 {
   bbs_record_last_caller();
+  telnetd_discard_pending_rx();
+#ifndef BBS_SERIAL_TRANSPORT
+  bbs_transport_flush_outbound();
+  bbs_transport_buf_reset();
+#endif
   if(bbs_bank_load(BBS_BANK_ID_UI) != 0u &&
      BBS_BANK_HDR->run_sys_stats != NULL) {
     BBS_BANK_HDR->run_sys_stats();
+#ifndef BBS_SERIAL_TRANSPORT
+    bbs_transport_flush_outbound();
+#endif
   } else {
     shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
   }
-  bbs_transport_flush_outbound();
   shell_output_str(NULL, "\r\n\x9ehit return to continue", "");
   bbs_status.status = STATUS_STATS;
 }
@@ -496,7 +506,13 @@ PROCESS_THREAD(bbs_login_process, ev, data)
 
   while(1) {
 
-    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || ev == PROCESS_EVENT_TIMER);
+    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || ev == PROCESS_EVENT_TIMER ||
+        ev == PROCESS_EVENT_POLL);
+
+    if(ev == PROCESS_EVENT_POLL && bbs_status.status == STATUS_LOGIN_RUN) {
+      bbs_login();
+      continue;
+    }
 
     if (ev == PROCESS_EVENT_TIMER) {
       /* Login timeout only; session timeout is broadcast to shell_process. */
@@ -616,7 +632,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             }
             bbs_new_user(input->data1);
             shell_output_str(NULL, "\n\r\n\rhandle:   ", (char *)bbs_user.user_name);
-            shell_output_str(NULL, "\n\rpassword: ", (char *)bbs_user.user_pwd);
+            shell_output_str(NULL, "\n\r(new user — confirm below)\n\r", "");
             bbs_status.status=STATUS_CONFUSR;
             shell_prompt("\n\r\n\rcorrect (y/n): ");
           	break;
@@ -637,7 +653,13 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             break;
           }
           case STATUS_STATS: {
-            bbs_login();
+            telnetd_discard_pending_rx();
+#ifndef BBS_SERIAL_TRANSPORT
+            bbs_transport_flush_outbound();
+            bbs_transport_buf_reset();
+#endif
+            bbs_status.status = STATUS_LOGIN_RUN;
+            process_post(&bbs_login_process, PROCESS_EVENT_POLL, NULL);
             break;
           }
           case STATUS_LOCK:
@@ -750,41 +772,51 @@ PROCESS_THREAD(movie_process, ev, data)
       bbs_status.speed = 1u;
     }
 
-    telnetd_discard_line_input();
-
     bordercolor(7);
     poke(0xd011, peek(0xd011) & 0xef);
     shell_output_str(NULL, "\x93", "\x8e");
     PROCESS_PAUSE();
 
-    if(cbm_open(10, board.media_device, 10, (char *)file) != 0) {
+    /* Bank loader uses BBS_FILE_CHANNEL; release overlay before media I/O. */
+    bbs_bank_unload();
+
+    if(cbm_open(BBS_MEDIA_CHANNEL, board.media_device, BBS_MEDIA_CHANNEL,
+        (char *)file) != 0) {
       shell_output_str(NULL, "\r\n\x96movie open failed\r\n", "");
       bordercolor(2);
       poke(0xd011, peek(0xd011) | 0x10);
+      (void)bbs_bank_load(BBS_BANK_ID_MSG);
     } else {
-    telnetd_discard_pending_input();
-    bbs_transport_stream_prepare();
-    bbs_stream_set_eof_process(&movie_process);
-    bbs_status.status = STATUS_STREAM;
-    telnetd_stream_begin();
-    bbs_transport_stream_prime();
-    PROCESS_WAIT_EVENT();
-    if(bbs_status.status == STATUS_STREAM) {
-      telnetd_kick_stream();
-    }
-    PROCESS_WAIT_EVENT_UNTIL(bbs_status.status == STATUS_LOCK);
+#ifndef BBS_SERIAL_TRANSPORT
+      bbs_transport_flush_outbound();
+#endif
+      bbs_stream_set_eof_process(&movie_process);
+      bbs_stream_begin();
 
-    telnetd_stream_end();
-    bbs_transport_stream_clear_sent();
-    cbm_close(10);
-    bbs_stream_set_eof_process(NULL);
-    bordercolor(2);
-    poke(0xd011, peek(0xd011) | 0x10);
+      PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input ||
+          bbs_status.status == STATUS_LOCK);
+      if(ev == shell_event_input) {
+        bbs_status.status = STATUS_LOCK;
+        PROCESS_PAUSE();
+      }
+
+#ifdef BBS_SERIAL_TRANSPORT
+      bbs_serial_flush_outbound();
+#endif
+      bbs_transport_stream_clear_sent();
+      cbm_close(BBS_MEDIA_CHANNEL);
+      bbs_stream_set_eof_process(NULL);
+      bordercolor(2);
+      poke(0xd011, peek(0xd011) | 0x10);
+      if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
+        shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
+      }
     }
   }
 
   PROCESS_PAUSE();
   set_prompt();
+  shell_prompt(bbs_status.prompt);
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
@@ -985,18 +1017,7 @@ bbs_bank_route_command(const char *cmd, int len)
 }
 
 static unsigned char
-bbs_ui_prepare_command(const char *cmd)
-{
-  if(bbs_bank_active() != 0u) {
-    bbs_bank_set_op(cmd);
-    return 1u;
-  }
-  (void)cmd;
-  return 0u;
-}
-
-static unsigned char
-bbs_xfer_prepare_command(const char *cmd)
+bbs_bank_prepare_command(const char *cmd)
 {
   if(bbs_bank_active() != 0u) {
     bbs_bank_set_op(cmd);
@@ -1075,7 +1096,7 @@ start_command(char *commandline, struct shell_command *child)
     /*    printf("shell: start_command starting '%s'\n", c->process->name);*/
     /* Start a new process for the command. */
     if(bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_XFER) {
-      if(bbs_xfer_prepare_command(commandline) == 0u) {
+      if(bbs_bank_prepare_command(commandline) == 0u) {
         command_kill(child);
         return NULL;
       }
@@ -1083,7 +1104,7 @@ start_command(char *commandline, struct shell_command *child)
       command_kill(child);
       c = NULL;
     } else if(bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_UI) {
-      if(bbs_ui_prepare_command(commandline) == 0u) {
+      if(bbs_bank_prepare_command(commandline) == 0u) {
         command_kill(child);
         return NULL;
       }
@@ -1151,15 +1172,16 @@ input_to_child_command(struct shell_command *c,
 void
 shell_input(char *commandline, int commandline_len)
 {
-  struct shell_input input;
-#ifdef BBS_SERIAL_TRANSPORT
+  int clen;
   int postres;
-#endif
 
   if(bbs_status.status == STATUS_XFER) {
     return;
   }
   if(bbs_status.status == STATUS_STREAM) {
+    return;
+  }
+  if(commandline_len <= 0) {
     return;
   }
 
@@ -1177,39 +1199,57 @@ shell_input(char *commandline, int commandline_len)
       front_process = &shell_process;
     }
     if(process_is_running(front_process)) {
+      struct shell_input input;
+
+      clen = commandline_len;
+      if(clen > TELNETD_CONF_LINELEN) {
+        clen = TELNETD_CONF_LINELEN;
+      }
+#ifndef BBS_SERIAL_TRANSPORT
       input.data1 = commandline;
-      input.len1 = commandline_len;
+      input.len1 = clen;
       input.data2 = "";
       input.len2 = 0;
-#ifdef BBS_SERIAL_TRANSPORT
-      {
-	int clen;
-
-	clen = commandline_len;
-	if(clen > TELNETD_CONF_LINELEN) {
-	  clen = TELNETD_CONF_LINELEN;
-	}
-	memcpy(shell_serial_input_line, commandline, (unsigned int)clen);
-	shell_serial_input_line[clen] = '\0';
-	shell_serial_input_holder.data1 = shell_serial_input_line;
-	shell_serial_input_holder.len1 = clen;
-	shell_serial_input_holder.data2 = "";
-	shell_serial_input_holder.len2 = 0;
-	postres = process_post(front_process, shell_event_input,
-		     &shell_serial_input_holder);
-	if(postres != PROCESS_ERR_OK) {
-	  front_process = &shell_process;
-	  shell_serial_input_holder.data1 = shell_serial_input_line;
-	  shell_serial_input_holder.len1 = clen;
-	  shell_serial_input_holder.data2 = "";
-	  shell_serial_input_holder.len2 = 0;
-	  (void)process_post(front_process, shell_event_input,
-			&shell_serial_input_holder);
-	}
+      if(front_process == &bbs_login_process) {
+        memcpy(shell_deferred_input_line, commandline, (unsigned int)clen);
+        shell_deferred_input_line[clen] = '\0';
+        shell_deferred_input_holder.data1 = shell_deferred_input_line;
+        shell_deferred_input_holder.len1 = clen;
+        shell_deferred_input_holder.data2 = "";
+        shell_deferred_input_holder.len2 = 0;
+        postres = process_post(front_process, shell_event_input,
+            &shell_deferred_input_holder);
+        if(postres != PROCESS_ERR_OK) {
+          front_process = &shell_process;
+          shell_deferred_input_holder.data1 = shell_deferred_input_line;
+          shell_deferred_input_holder.len1 = clen;
+          shell_deferred_input_holder.data2 = "";
+          shell_deferred_input_holder.len2 = 0;
+          (void)process_post(front_process, shell_event_input,
+              &shell_deferred_input_holder);
+        }
+      } else {
+        process_post_synch(front_process, shell_event_input, &input);
       }
-#else
-      process_post_synch(front_process, shell_event_input, &input);
-#endif
+#else /* BBS_SERIAL_TRANSPORT */
+      memcpy(shell_deferred_input_line, commandline, (unsigned int)clen);
+      shell_deferred_input_line[clen] = '\0';
+      shell_deferred_input_holder.data1 = shell_deferred_input_line;
+      shell_deferred_input_holder.len1 = clen;
+      shell_deferred_input_holder.data2 = "";
+      shell_deferred_input_holder.len2 = 0;
+      postres = process_post(front_process, shell_event_input,
+          &shell_deferred_input_holder);
+      if(postres != PROCESS_ERR_OK) {
+        front_process = &shell_process;
+        shell_deferred_input_holder.data1 = shell_deferred_input_line;
+        shell_deferred_input_holder.len1 = clen;
+        shell_deferred_input_holder.data2 = "";
+        shell_deferred_input_holder.len2 = 0;
+        (void)process_post(front_process, shell_event_input,
+            &shell_deferred_input_holder);
+      }
+#endif /* BBS_SERIAL_TRANSPORT */
     }
     if(process_is_running(&bbs_timer_process)) {
       process_post(&bbs_timer_process, shell_event_input, NULL);
@@ -1310,10 +1350,9 @@ PROCESS_THREAD(shell_process, ev, data)
       shell_stop();
       //bbs_unlock();
     }
-    if(bbs_status.status>STATUS_HANDLE && front_process == &shell_process) {
+    if(bbs_status.status > STATUS_HANDLE && front_process == &shell_process) {
       shell_prompt(bbs_status.prompt);
     }
-  
   }
   
   PROCESS_END();
@@ -1357,7 +1396,7 @@ shell_init(void)
   shell_register_command(&settime_command);
   shell_register_command(&quit_command);
   shell_register_command(&movie_command);
-  bbs_shared_publish();
+  bbs_shared_init();
 
   /* local console eye candy */
   clrscr();
@@ -1426,6 +1465,12 @@ shell_start(void)
   if(!bbs_try_lock_for_session()) {
     return;
   }
+  /* Show encoding menu immediately; load msg bank while user reads it. */
+  shell_preconnect_banner();
+  if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
+    log_message("\x96", "msg bank");
+  }
+  /* Bank load resets the ring; show the menu again. */
   shell_preconnect_banner();
   front_process = &bbs_login_process;
 }
@@ -1434,9 +1479,9 @@ void
 shell_stop(void)
 {
   //log_message("\x9e", "shell stop");
-  bbs_bank_unload();
   bbs_unlock();
   killall();
+  bbs_bank_forget();
 }
 /*---------------------------------------------------------------------------*/
 void

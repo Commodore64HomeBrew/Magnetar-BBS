@@ -4,9 +4,9 @@
 #include "bbs-defs.h"
 
 /*
- * Magic Desk compatible bank image at $B000 (8K, BBK1..BBK4 header).
- * SD2IEC: load .bin from drive 8 root into RAM at $B000; no $DE00 cart map yet.
- * Future cart: enable $DE00 (see BBS_BANK_HW_REG) before exec on hardware.
+ * Bank overlays at $B000 (8 KiB, BBK1..BBK4 header in each bbs-bankN.bin).
+ * Core loads banks via bbs_bank_load(); command code is not cc65 -t module.
+ * SD2IEC: read .bin into RAM at $B000; future cart: $DE00 (BBS_BANK_HW_REG).
  */
 
 #define BBS_BANK_BASE       0xB000u
@@ -43,6 +43,10 @@ typedef struct bbs_shared_s {
   void (*shell_unregister_command)(struct shell_command *c);
   void (*transport_poll)(void);
   void (*transport_flush_outbound)(void);
+  void (*transport_buf_reset)(void);
+  void (*scr_layout_output)(void);
+  void (*scr_layout_xfer)(void);
+  void (*stream_begin)(void);
   int (*buf_append)(const char *data, int len);
   int (*buf_putc_raw)(unsigned char c);
   unsigned long (*clock_time)(void);
@@ -57,18 +61,14 @@ typedef struct bbs_shared_s {
 } bbs_shared_t;
 
 /*
- * Mailbox word at $A986 (segment MAILBOX in c64-bbs-core.cfg).
- * Banks read this fixed address; core owns the storage symbol.
+ * Fixed resident block (SHARED in c64-bbs-core.cfg, bbs-shared-reserve.S).
+ * Core and banks both use BBS_SHARED; no pointer mailbox or double indirection.
+ * ABI: do not change BBS_SHARED_BASE without rebuilding all bank .bin files.
  */
-#define BBS_SHARED_MAILBOX  0xA986u
+#define BBS_SHARED_BASE     0xA280u
 
 extern bbs_shared_t bbs_shared_data;
-#ifdef BBS_BANK_BUILD
-#define BBS_SHARED    (*(bbs_shared_t **)(BBS_SHARED_MAILBOX))
-#else
-extern volatile bbs_shared_t *bbs_shared_mailbox;
-#define BBS_SHARED    (&bbs_shared_data)
-#endif
+#define BBS_SHARED          ((bbs_shared_t *)BBS_SHARED_BASE)
 
 typedef struct bbs_bank_hdr_s {
   char sig[4];
@@ -81,12 +81,13 @@ typedef struct bbs_bank_hdr_s {
 
 #define BBS_BANK_HDR  ((bbs_bank_hdr_t *)BBS_BANK_BASE)
 
-void bbs_shared_publish(void);
-void bbs_shared_sync_back(void);
+void bbs_shared_init(void);
 void bbs_bank_hw_enable_for_exec(void);
 void bbs_bank_hw_disable_exec(void);
 unsigned char bbs_bank_load(unsigned char bank_id);
 void bbs_bank_unload(void);
+/* Clear loaded-bank state without calling overlay deinit (safe during logout). */
+void bbs_bank_forget(void);
 unsigned char bbs_bank_active(void);
 unsigned char bbs_bank_id_active(void);
 void bbs_bank_set_op(const char *cmd);

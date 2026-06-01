@@ -6,6 +6,9 @@
  */
 
 #include "contiki.h"
+
+#pragma bss-name("LOWBSS")
+
 #include "bbs-resident.h"
 #include "bbs-shell.h"
 #include "bbs-file.h"
@@ -32,21 +35,33 @@ banner_load_file_payload(unsigned short ptr, unsigned char read_layout)
   int n;
 
   if(read_layout != 0u) {
+    unsigned int pos;
+    unsigned int contig;
+
+    pos = ((unsigned int)buf.head + (unsigned int)buf.used) % buf.size;
     room = buf_free_bytes();
     if(room > 2u) {
       room -= 2u;
     } else {
       room = 0u;
     }
-    dst = &buf.bufmem[ptr];
-    n = cbm_read(10, dst, (unsigned short)room);
-    if(n < 0) {
-      n = 0;
+    contig = buf.size - pos;
+    if(room > contig) {
+      room = contig;
     }
-    buf.used = (unsigned int)ptr + (unsigned int)n;
-    if(bbs_status.encoding == 1) {
-      petscii_to_ascii((char *)dst,
-          (unsigned int)(buf.used - (unsigned int)ptr));
+    if(room > 0u) {
+      dst = &buf.bufmem[pos];
+      n = cbm_read(10, dst, (unsigned short)room);
+      if(n < 0) {
+        n = 0;
+      }
+      if(bbs_status.encoding == 1) {
+        petscii_to_ascii((char *)dst, (unsigned int)n);
+      }
+      buf.used += (unsigned int)n;
+      if(buf.used > buf.size) {
+        buf.used = buf.size;
+      }
     }
     if(buf_free_bytes() >= 2u) {
       (void)buf_putc_raw(ISO_cr);
@@ -73,12 +88,17 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
   unsigned short line=0;
   unsigned short col, preCol;
   unsigned short width;
-  unsigned char file[25];
+  unsigned char file[BBS_FILE_PATH_BUFLEN + 20];
   unsigned short ptr;
+  unsigned char read_layout;
   unsigned char c;
 
-  //Blank the screen to speed things up
-  poke(0xd011, peek(0xd011) & 0xef);
+  read_layout = (unsigned char)(bbs_status.status == STATUS_READ ? 1u : 0u);
+
+  /* Blank screen for banners only; message read uses same RAM as the ring. */
+  if(read_layout == 0u) {
+    poke(0xd011, peek(0xd011) & 0xef);
+  }
 
   sprintf(file, "%s%s",szBannerFile, fileSuffix);
   log_message("\x9fread: ", file);
@@ -92,16 +112,17 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
   /* Single cbm_read is capped by free ring space; push pending TX out first. */
   bbs_serial_drain_wire();
 #endif
-  ptr = (unsigned short)buf.used;
+  ptr = (unsigned short)(((unsigned int)buf.head + (unsigned int)buf.used) %
+      buf.size);
 
-  sprintf(file, "%s:%s%s",filePrefix, szBannerFile, fileSuffix);
+  sprintf(file, "%s:%s%s", filePrefix, szBannerFile, fileSuffix);
 
   cbm_open(10, device, 10, file);
 
-  banner_load_file_payload(ptr,
-      (unsigned char)(bbs_status.status == STATUS_READ ? 1u : 0u));
+  banner_load_file_payload(ptr, read_layout);
 
-  if((unsigned int)ptr + 1u < buf.size) {
+  /* Banner layout reserves CR+NL before payload; read layout adds CRLF via load. */
+  if(read_layout == 0u && (unsigned int)ptr + 1u < buf.size) {
     buf.bufmem[ptr] = ISO_cr;
     buf.bufmem[ptr + 1] = ISO_nl;
   }
@@ -113,14 +134,17 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
   cbm_close(10);
 
 
-  if (wordWrap==1) {
+  if(wordWrap == 1u && read_layout == 0u) {
     int last_spc;
 
     width = bbs_status.width;
     col = 0;
     preCol = 0;
     last_spc = -1;
-    for(i = ptr; i < (unsigned short)buf.used; i++) {
+    if(ptr < (unsigned short)buf.used) {
+    for(i = ptr;
+        i < (unsigned short)buf.used && i < (unsigned short)buf.size;
+        i++) {
 
       c = buf.bufmem[i];
 
@@ -181,10 +205,12 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
         }
       }
     }
+    }
   }
 
-  //Turn on the screen again
-  poke(0xd011, peek(0xd011) | 0x10);
+  if(read_layout == 0u) {
+    poke(0xd011, peek(0xd011) | 0x10);
+  }
 #ifdef BBS_SERIAL_TRANSPORT
   bbs_serial_flush_outbound();
   bbs_serial_banner_end();

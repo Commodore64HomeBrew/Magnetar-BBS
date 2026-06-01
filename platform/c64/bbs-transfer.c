@@ -1,60 +1,22 @@
-/* bbs-transfer.c — transfer dir commands + XMODEM glue (core in bbs-xmodem.s) */
+/* bbs-transfer.c — xfer commands + XMODEM (bank 1 overlay only; core in bbs-xmodem.S). */
 #pragma static-locals(off)
-#ifdef BBS_BANK_BUILD
 #pragma rodata-name("CODE")
+
+#ifndef BBS_BANK_BUILD
+#error "bbs-transfer.c is linked only as bank overlay bbs-transfer-bank.o"
 #endif
 
 #include "contiki.h"
 #include "bbs-shell.h"
 #include "bbs-transfer.h"
 #include "bbs-xmodem.h"
-#ifdef BBS_BANK_BUILD
 #include "bbs-bank.h"
-#elif defined(BBS_XFER_MODULE)
-#include "bbs-modules.h"
-#endif
+#include "bbs-bank-macros.h"
 #include <cbm.h>
 #ifdef BBS_SERIAL_TRANSPORT
 #include <serial.h>
 #endif
-#if !defined(BBS_XFER_MODULE) && !defined(BBS_BANK_BUILD)
-#include <stdlib.h>
-#endif
 #include <string.h>
-
-#if defined(BBS_BANK_BUILD)
-#include "bbs-bank-macros.h"
-#elif defined(BBS_XFER_MODULE)
-static BBS_BOARD_REC *xfer_board;
-static BBS_STATUS_REC *xfer_status;
-static BBS_BUFFER *xfer_buf;
-static int *xfer_shell_event_inputp;
-static void (*xfer_shell_output_str)(struct shell_command *c, char *str1, char *str2);
-static void (*xfer_shell_prompt)(char *prompt);
-static void (*xfer_shell_register_command)(struct shell_command *c);
-static void (*xfer_shell_unregister_command)(struct shell_command *c);
-static void (*xfer_transport_poll)(void);
-static int (*xfer_buf_append)(const char *data, int len);
-static unsigned long (*xfer_clock_time)(void);
-static void (*xfer_serial_flush_outbound)(void);
-
-#define board (*xfer_board)
-#define bbs_status (*xfer_status)
-#define buf (*xfer_buf)
-#define shell_event_input (*xfer_shell_event_inputp)
-#define shell_output_str xfer_shell_output_str
-#define shell_prompt xfer_shell_prompt
-#define shell_register_command xfer_shell_register_command
-#define shell_unregister_command xfer_shell_unregister_command
-#define bbs_transport_poll xfer_transport_poll
-#define buf_append xfer_buf_append
-#define clock_time xfer_clock_time
-#define bbs_serial_flush_outbound xfer_serial_flush_outbound
-#else
-extern BBS_BOARD_REC board;
-extern BBS_STATUS_REC bbs_status;
-extern BBS_BUFFER buf;
-#endif
 
 #define XFER_CHN  2u
 #define XFER_CMD  15u
@@ -63,7 +25,6 @@ extern BBS_BUFFER buf;
 /* Longest xfer op: "cd " + 16-char name + NUL */
 #define BBS_XFER_OP_COPY_LEN  24u
 
-#if defined(BBS_BANK_BUILD)
 typedef struct bbs_xfer_state {
   unsigned int rx_head, rx_tail;
   unsigned char *rx_base;
@@ -73,56 +34,11 @@ typedef struct bbs_xfer_state {
   char pathbuf[BBS_FILE_PATH_BUFLEN];
   char outc;
 } bbs_xfer_state_t;
-#else
-typedef struct bbs_xfer_state {
-  unsigned int rx_head, rx_tail;
-  unsigned char *rx_base;
-  unsigned int rx_size;
-  char cwd[BBS_XFER_PATH_LEN];
-  const char *op_line;
-  char pathbuf[BBS_FILE_PATH_BUFLEN];
-  char cmd[24];
-  char outc;
-#ifdef BBS_SERIAL_TRANSPORT
-  char ser_c;
-#endif
-} bbs_xfer_state_t;
-#endif
 
 static bbs_xfer_state_t *xfer;
 unsigned char bbs_xmodem_inbyte;
 
-#ifdef BBS_XFER_MODULE
-unsigned char
-bbs_xfer_bind(const bbs_module_ctx_t *ctx)
-{
-  if(ctx == NULL || ctx->bbsm_board == NULL || ctx->bbsm_status == NULL ||
-      ctx->bbsm_buffer == NULL || ctx->bbsm_shell_event_input == NULL ||
-      ctx->bbsm_shell_output_str == NULL ||
-      ctx->bbsm_shell_prompt == NULL || ctx->bbsm_shell_register_command == NULL ||
-      ctx->bbsm_shell_unregister_command == NULL || ctx->bbsm_transport_poll == NULL ||
-      ctx->bbsm_buf_append == NULL || ctx->bbsm_clock_time == NULL) {
-    return 0u;
-  }
-  xfer_board = (BBS_BOARD_REC *)ctx->bbsm_board;
-  xfer_status = (BBS_STATUS_REC *)ctx->bbsm_status;
-  xfer_buf = (BBS_BUFFER *)ctx->bbsm_buffer;
-  xfer_shell_event_inputp = ctx->bbsm_shell_event_input;
-  xfer_shell_output_str = ctx->bbsm_shell_output_str;
-  xfer_shell_prompt = ctx->bbsm_shell_prompt;
-  xfer_shell_register_command = ctx->bbsm_shell_register_command;
-  xfer_shell_unregister_command = ctx->bbsm_shell_unregister_command;
-  xfer_transport_poll = ctx->bbsm_transport_poll;
-  xfer_buf_append = ctx->bbsm_buf_append;
-  xfer_clock_time = ctx->bbsm_clock_time;
-  xfer_serial_flush_outbound = ctx->bbsm_serial_flush_outbound;
-  return 1u;
-}
-#endif
-
-#if defined(BBS_BANK_BUILD)
 static void bbs_xfer_dispatch(void);
-#endif
 
 void
 bbs_xfer_set_op(const char *cmd)
@@ -130,13 +46,9 @@ bbs_xfer_set_op(const char *cmd)
   if(xfer == NULL || cmd == NULL) {
     return;
   }
-#ifdef BBS_BANK_BUILD
   strncpy(xfer->op_copy, cmd, BBS_XFER_OP_COPY_LEN - 1u);
   xfer->op_copy[BBS_XFER_OP_COPY_LEN - 1u] = '\0';
   bbs_xfer_dispatch();
-#else
-  xfer->op_line = cmd;
-#endif
 }
 
 void
@@ -181,12 +93,6 @@ xfer_flush_rx(void)
 
   while(xfer_rx_pop(&c) != 0u) {
   }
-#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_BANK_BUILD)
-  if(xfer != NULL) {
-    while(ser_get(&xfer->ser_c) == SER_ERR_OK) {
-    }
-  }
-#endif
 }
 
 unsigned char
@@ -205,12 +111,6 @@ bbs_xmodem_poll(void)
       bbs_xmodem_inbyte = c;
       return 1u;
     }
-#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_BANK_BUILD)
-    if(ser_get(&s->ser_c) == SER_ERR_OK) {
-      bbs_xmodem_inbyte = (unsigned char)s->ser_c;
-      return 1u;
-    }
-#endif
     bbs_transport_poll();
   }
   return 0u;
@@ -329,13 +229,7 @@ xfer_cd_transfer(void)
   return xfer_dos_cmd(s->pathbuf);
 }
 
-#if defined(BBS_BANK_BUILD)
 #define xfer_flush_outbound() bbs_transport_flush_outbound()
-#elif defined(BBS_SERIAL_TRANSPORT)
-#define xfer_flush_outbound() bbs_serial_flush_outbound()
-#else
-#define xfer_flush_outbound() bbs_transport_flush_outbound()
-#endif
 
 void
 bbs_xmodem_io_begin(void)
@@ -343,12 +237,9 @@ bbs_xmodem_io_begin(void)
   if(xfer == NULL) {
     return;
   }
-  /* Partition screen RAM: RX ring, outbound ACK/data, 132-byte XMODEM block. */
+  /* Exclusive screen RAM: leave 1 KiB output layout, use xfer partition only now. */
   xfer_flush_outbound();
-  buf.bufmem = (unsigned char *)BBS_XFER_SCR_TX_BASE;
-  buf.size = BBS_XFER_SCR_TX_SIZE;
-  buf.head = 0u;
-  buf.used = 0u;
+  bbs_scr_layout_xfer();
   xfer->rx_base = (unsigned char *)BBS_XFER_SCR_RX_BASE;
   xfer->rx_size = BBS_XFER_SCR_RX_SIZE;
   xfer->rx_head = xfer->rx_tail = 0u;
@@ -363,10 +254,7 @@ bbs_xmodem_io_end(void)
   if(xfer != NULL) {
     xfer->rx_base = NULL;
   }
-  buf.bufmem = (unsigned char *)BBS_BUFFER_SCR_BASE;
-  buf.size = BBS_BUFFER_SIZE;
-  buf.head = 0u;
-  buf.used = 0u;
+  bbs_scr_layout_output();
 }
 
 static void
@@ -446,8 +334,6 @@ xfer_op_arg_after(const char *op, unsigned char skip)
   }
   return op;
 }
-
-#if defined(BBS_BANK_BUILD)
 
 static unsigned char
 xfer_bank_cd(const char *path)
@@ -600,52 +486,6 @@ bbs_xfer_dispatch(void)
     xfer_dirlist();
   }
 }
-#endif /* BBS_BANK_BUILD */
-
-#if !defined(BBS_BANK_BUILD)
-static unsigned char
-xfer_cd_local(const char *arg)
-{
-  bbs_xfer_state_t *s = xfer;
-  unsigned char len, i;
-
-  if(s == NULL) {
-    return 0u;
-  }
-  if(arg[0] == 0) {
-    return 1u;
-  }
-  if(strcmp(arg, "..") == 0 || arg[0] == '_' || strcmp(arg, "^") == 0) {
-    len = (unsigned char)strlen(s->cwd);
-    if(len == 0u) {
-      return 1u;
-    }
-    if(len > 0u && s->cwd[len - 1u] == '/') {
-      s->cwd[len - 1u] = 0;
-      len = (unsigned char)strlen(s->cwd);
-    }
-    for(i = len; i > 0u; --i) {
-      if(s->cwd[i - 1u] == '/') {
-        s->cwd[i] = 0;
-        break;
-      }
-    }
-    return xfer_cd_transfer();
-  }
-  len = (unsigned char)strlen(s->cwd);
-  if(len + strlen(arg) + 2u >= BBS_XFER_PATH_LEN) {
-    return 0u;
-  }
-  if(len > 0u && s->cwd[len - 1u] != '/') {
-    strcat(s->cwd, "/");
-  }
-  strcat(s->cwd, arg);
-  if(s->cwd[strlen(s->cwd) - 1u] != '/') {
-    strcat(s->cwd, "/");
-  }
-  return xfer_cd_transfer();
-}
-#endif /* !BBS_BANK_BUILD */
 
 /*---------------------------------------------------------------------------*/
 PROCESS(bbs_xfer_process, "xfer");
@@ -658,118 +498,26 @@ SHELL_COMMAND(bbs_xfer_ls_command, "$", "$ : list dir", &bbs_xfer_process);
 PROCESS_THREAD(bbs_xfer_process, ev, data)
 {
   PROCESS_BEGIN();
-#if !defined(BBS_BANK_BUILD)
-  bbs_xfer_state_t *s = xfer;
-  struct shell_input *input;
-  const char *op;
-  const char *path;
-
-  if(s == NULL) {
-    PROCESS_EXIT();
-  }
-  op = s->op_line;
-  shell_output_str(NULL, PETSCII_LOWER, PETSCII_WHITE);
-
-  if(op != NULL && op[0] == (char)'d' &&
-      (op[1] == 0 || op[1] == ' ')) {
-    path = xfer_op_arg_after(op, 1u);
-    if(path[0] == 0) {
-      shell_output_str(NULL, "\n\rusage: d filename\n\r", "");
-    } else if(xfer_name_ok(path) == 0u) {
-      shell_output_str(NULL, "\n\rinvalid name\n\r", "");
-    } else {
-      strcpy(s->pathbuf, path);
-      xfer_do_send(s->pathbuf);
-    }
-    PROCESS_EXIT();
-  }
-
-  if(op != NULL && op[0] == (char)'u' &&
-      (op[1] == 0 || op[1] == ' ')) {
-    path = xfer_op_arg_after(op, 1u);
-    if(path[0] == 0) {
-      shell_output_str(NULL, "\n\rusage: u filename\n\r", "");
-    } else if(xfer_name_ok(path) == 0u) {
-      shell_output_str(NULL, "\n\rinvalid name\n\r", "");
-    } else {
-      strcpy(s->pathbuf, path);
-      xfer_do_recv(s->pathbuf);
-    }
-    PROCESS_EXIT();
-  }
-
-  if(board.dir_boost == 1u && op != NULL && op[0] == (char)'c' && op[1] == (char)'d' && op[2] == 0) {
-    shell_prompt("\n\rdirectory: ");
-    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
-    input = data;
-    if(xfer_cd_local(input->data1) == 0u) {
-      shell_output_str(NULL, "\n\rcd failed\n\r", "");
-    } else {
-      strcpy(s->pathbuf, "\n\rnow: ");
-      strcat(s->pathbuf, board.transfer_prefix);
-      strcat(s->pathbuf, s->cwd);
-      strcat(s->pathbuf, "\n\r");
-      shell_output_str(NULL, s->pathbuf, "");
-    }
-    PROCESS_EXIT();
-  }
-
-  if(board.dir_boost == 1u && op != NULL && op[0] == (char)'m' && op[1] == (char)'d' && op[2] == 0) {
-    shell_prompt("\n\rnew directory: ");
-    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
-    input = data;
-    if(xfer_name_ok(input->data1) != 0u) {
-      strcpy(s->cmd, "MD:");
-      strcat(s->cmd, input->data1);
-      if(xfer_dos_cmd(s->cmd) == 0u) {
-        shell_output_str(NULL, "\n\rmd failed\n\r", "");
-      } else {
-        shell_output_str(NULL, "\n\rok\n\r", "");
-      }
-    } else {
-      shell_output_str(NULL, "\n\rinvalid name\n\r", "");
-    }
-    PROCESS_EXIT();
-  }
-#endif /* !BBS_BANK_BUILD */
-
+  /* Commands run via bbs_bank_set_op -> bbs_xfer_set_op -> bbs_xfer_dispatch. */
   PROCESS_END();
 }
 
 unsigned char
 bbs_xfer_init(void)
 {
-#if defined(BBS_XFER_MODULE) || defined(BBS_BANK_BUILD)
-  static bbs_xfer_state_t module_state;
-  xfer = &module_state;
-#else
-  if(xfer == NULL) {
-    xfer = (bbs_xfer_state_t *)malloc(sizeof(*xfer));
-    if(xfer == NULL) {
-      return 0u;
-    }
-  }
-#endif
+  static bbs_xfer_state_t xfer_state;
+
+  xfer = &xfer_state;
   xfer->cwd[0] = 0;
   xfer->rx_head = xfer->rx_tail = 0u;
   xfer->rx_base = NULL;
   xfer->rx_size = 0u;
-#if !defined(BBS_BANK_BUILD)
-  xfer->op_line = NULL;
-#endif
   (void)xfer_cd_transfer();
   shell_register_command(&bbs_xfer_dl_command);
   shell_register_command(&bbs_xfer_ul_command);
-#if defined(BBS_BANK_BUILD)
   shell_register_command(&bbs_xfer_cd_command);
   shell_register_command(&bbs_xfer_md_command);
   shell_register_command(&bbs_xfer_ls_command);
-#else
-  if(board.dir_boost == 1u) {
-    shell_register_command(&bbs_xfer_cd_command);
-    shell_register_command(&bbs_xfer_md_command);
-  }
-#endif
   return 1u;
 }
 
@@ -779,24 +527,11 @@ bbs_xfer_deinit(void)
   if(xfer != NULL) {
     xfer->rx_base = NULL;
     xfer->rx_size = 0u;
-#if !defined(BBS_BANK_BUILD)
-    xfer->op_line = NULL;
-#endif
   }
   shell_unregister_command(&bbs_xfer_dl_command);
   shell_unregister_command(&bbs_xfer_ul_command);
-#if defined(BBS_BANK_BUILD)
   shell_unregister_command(&bbs_xfer_cd_command);
   shell_unregister_command(&bbs_xfer_md_command);
   shell_unregister_command(&bbs_xfer_ls_command);
-#else
-  shell_unregister_command(&bbs_xfer_cd_command);
-  shell_unregister_command(&bbs_xfer_md_command);
-#endif
-#if !defined(BBS_XFER_MODULE) && !defined(BBS_BANK_BUILD)
-  if(xfer != NULL) {
-    free(xfer);
-  }
-#endif
   xfer = NULL;
 }

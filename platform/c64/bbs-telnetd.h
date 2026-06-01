@@ -53,14 +53,15 @@ PROCESS_NAME(telnetd_process);
 void bbs_transport_session_close(void);
 void bbs_transport_busy_reject(void);
 void bbs_transport_stream_clear_sent(void);
-void bbs_transport_stream_prepare(void);
-void bbs_transport_stream_prime(void);
-void telnetd_discard_line_input(void);
-void telnetd_discard_pending_input(void);
-void telnetd_stream_begin(void);
-void telnetd_stream_end(void);
-/* Set/clear process to poll on stream EOF (movie module sets this). */
+void bbs_transport_buf_reset(void);
+/* Screen RAM layout: full 1 KiB telnet ring (default). */
+void bbs_scr_layout_output(void);
+/* Screen RAM layout: RX/TX/XMODEM partition (call only for upload/download). */
+void bbs_scr_layout_xfer(void);
+/* Set/clear process to poll on stream EOF (movie stream in core). */
 void bbs_stream_set_eof_process(struct process *p);
+void telnetd_discard_pending_rx(void);
+void bbs_stream_begin(void);
 
 #ifndef BBS_SERIAL_TRANSPORT
 void telnetd_appcall(void *data);

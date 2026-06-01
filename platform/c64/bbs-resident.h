@@ -4,7 +4,7 @@
 #define BBS_USE_RESIDENT 1
 #include "bbs-bank.h"
 
-/* Core globals live in bbs_shared_data (DATA), below the $B000 bank window. */
+/* State and callbacks live in the fixed block at BBS_SHARED_BASE (see bbs-bank.h). */
 #define board           (BBS_SHARED->s_board)
 #define bbs_config      (BBS_SHARED->s_config)
 #define bbs_status      (BBS_SHARED->s_status)

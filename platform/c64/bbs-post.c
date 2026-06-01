@@ -1,37 +1,26 @@
-/* bbs-post.c — compose/save board messages */
+/* bbs-post.c — compose/save board messages (bank 2 overlay only). */
 #pragma static-locals(off)
-#ifdef BBS_BANK_BUILD
 #pragma rodata-name("CODE")
+
+#ifndef BBS_BANK_BUILD
+#error "bbs-post.c is linked only as bank overlay bbs-post-bank.o"
 #endif
 
 #include "contiki.h"
 #include "bbs-shell.h"
 #include "bbs-post.h"
 #include "bbs-file.h"
+#include "bbs-telnetd.h"
+#include "bbs-bank-macros.h"
 #include <stdio.h>
 #include <string.h>
-
-#ifdef BBS_BANK_BUILD
-#include "bbs-bank-macros.h"
-#else
-extern BBS_BOARD_REC board;
-extern BBS_CONFIG_REC bbs_config;
-extern BBS_STATUS_REC bbs_status;
-extern BBS_USER_REC bbs_user;
-extern BBS_TIME_REC bbs_time;
-extern BBS_USER_STATS bbs_usrstats;
-extern BBS_SYSTEM_STATS bbs_sysstats;
-#endif
 
 static unsigned short post_cur;
 static unsigned short post_room;
 static unsigned short post_chunk;
-
-#ifdef BBS_BANK_BUILD
 static char post_buffer[BBS_POST_BUFFER_SIZE];
 static char post_msg_name[12];
 static char post_file_name[40];
-#endif
 
 static void
 post_echo_fix(void)
@@ -49,6 +38,7 @@ end_post(void)
   poke(0xd011, peek(0xd011) | 0x10);
   bordercolor(2);
   set_prompt();
+  shell_prompt(bbs_status.prompt);
 }
 
 static int
@@ -58,7 +48,7 @@ post_cmd_eq(const char *in, const char *a, const char *b)
 }
 
 static void
-post_commit(char *post_buffer, char *msg_name, char *file_name)
+post_commit(char *body, char *msg_name, char *file_name)
 {
   unsigned char b = bbs_status.board_id;
   unsigned short id = ++bbs_config.msg_id[b];
@@ -66,9 +56,9 @@ post_commit(char *post_buffer, char *msg_name, char *file_name)
   sprintf(msg_name, "%d-%d", b, id);
   file_path(msg_name, id, file_name, 40);
   sprintf(file_name, "%s:%d-%d", file_name, b, id);
-  log_message("", post_buffer);
+  log_message("", body);
   log_message("\x99write: ", file_name);
-  cbm_save(file_name, board.subs_device, post_buffer, bbs_status.msg_size);
+  cbm_save(file_name, board.subs_device, body, bbs_status.msg_size);
   bbs_path_sys_at(file_name, BBS_CFG_FILE);
   cbm_save(file_name, board.sys_device, &bbs_config, sizeof(bbs_config));
   ++bbs_usrstats.num_msgs;
@@ -82,11 +72,6 @@ SHELL_COMMAND(bbs_post_command, "w", "w : write msg", &bbs_post_process);
 PROCESS_THREAD(bbs_post_process, ev, data)
 {
 	struct shell_input *input;
-#ifndef BBS_BANK_BUILD
-	char post_buffer[BBS_POST_BUFFER_SIZE];
-	char msg_name[12];
-	char file_name[40];
-#endif
 
 	PROCESS_BEGIN();
 
@@ -100,9 +85,6 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 	bbs_status.status = STATUS_SUBJ;
 	bbs_status.msg_size = 0u;
 	post_buffer[0] = '\0';
-#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_BANK_BUILD)
-	PROCESS_PAUSE();
-#endif
 
 	while(1) {
 
@@ -150,27 +132,19 @@ PROCESS_THREAD(bbs_post_process, ev, data)
 		}
 
 		else if(post_cmd_eq(input->data1, "/s\x0a\x0d", "/s\x0d\x0a")) {
-			post_commit(post_buffer,
-#ifdef BBS_BANK_BUILD
-			    post_msg_name, post_file_name
-#else
-			    msg_name, file_name
-#endif
-			    );
+			post_commit(post_buffer, post_msg_name, post_file_name);
 			PROCESS_EXIT();
 		}
 
 		else {
 			post_cur = bbs_status.msg_size;
 			if(post_cur >= (unsigned short)(BBS_POST_BUFFER_SIZE - 1u)) {
-				//log_message("\x96", "post buffer full");
 				continue;
 			}
 			post_room = (unsigned short)(BBS_POST_BUFFER_SIZE - 1u - post_cur);
 			post_chunk = (unsigned short)input->len1;
 			if(post_chunk > post_room) {
 				post_chunk = post_room;
-				//log_message("\x96", "post line truncated");
 			}
 			memcpy(post_buffer + post_cur, input->data1, post_chunk);
 			post_buffer[post_cur + post_chunk] = '\0';
@@ -193,4 +167,3 @@ bbs_post_deinit(void)
 {
   shell_unregister_command(&bbs_post_command);
 }
-
