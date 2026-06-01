@@ -51,13 +51,6 @@ PROCESS(bbs_timer_process, "timer");
 PROCESS(bbs_login_process, "login");
 SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_process);
 
-#ifndef BBS_SERIAL_TRANSPORT
-/* Defer op for process_post(..., PROCESS_EVENT_POLL, ...); 0 = none. */
-static unsigned char bbs_login_defer_op;
-#define BBS_LOGIN_DEFER_BANK    1u
-#define BBS_LOGIN_DEFER_FINISH  2u
-#endif
-
 #ifdef BBS_SERIAL_TRANSPORT
 /* post_synch from telnet flush would re-enter a child PT (e.g. prevmsg/read); defer with process_post. */
 static char shell_serial_input_line[TELNETD_CONF_LINELEN + 1];
@@ -465,10 +458,8 @@ void bbs_login()
 	shell_output_str(NULL, "\r\n\x05? \x9fto list commands", "");
 	shell_output_str(NULL, "\x05s \x9eselect msg board\r\n", "");
 
-	if(bbs_bank_id_active() != BBS_BANK_ID_MSG) {
-		if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
-			shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
-		}
+	if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
+		shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
 	}
 
 	//Display the sub banner:
@@ -477,7 +468,6 @@ void bbs_login()
 	shell_prompt(bbs_status.prompt);
 	process_start(&bbs_timer_process, NULL);
   front_process=&shell_process;
-  bbs_transport_flush_outbound();
 }
 
 
@@ -491,17 +481,9 @@ login_stats_continue(void)
   } else {
     shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
   }
+  bbs_transport_flush_outbound();
   shell_output_str(NULL, "\r\n\x9ehit return to continue", "");
   bbs_status.status = STATUS_STATS;
-  /* Flush stats text before scheduling any deferred work: flush runs process_run(),
-     which may deliver PROCESS_EVENT_POLL and re-enter the login process. */
-  bbs_transport_flush_outbound();
-#ifndef BBS_SERIAL_TRANSPORT
-  bbs_login_defer_op = BBS_LOGIN_DEFER_BANK;
-  process_post(&bbs_login_process, PROCESS_EVENT_POLL, NULL);
-#else
-  (void)bbs_bank_load(BBS_BANK_ID_MSG);
-#endif
 }
 
 /*---------------------------------------------------------------------------*/
@@ -514,25 +496,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
 
   while(1) {
 
-#if defined(BBS_SERIAL_TRANSPORT)
     PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || ev == PROCESS_EVENT_TIMER);
-#else
-    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || ev == PROCESS_EVENT_TIMER ||
-        ev == PROCESS_EVENT_POLL);
-#endif
-
-#ifndef BBS_SERIAL_TRANSPORT
-    if(ev == PROCESS_EVENT_POLL && bbs_login_defer_op != 0u) {
-      if(bbs_login_defer_op == BBS_LOGIN_DEFER_BANK) {
-        bbs_login_defer_op = 0u;
-        (void)bbs_bank_load(BBS_BANK_ID_MSG);
-      } else {
-        bbs_login_defer_op = 0u;
-        bbs_login();
-      }
-      continue;
-    }
-#endif
 
     if (ev == PROCESS_EVENT_TIMER) {
       /* Login timeout only; session timeout is broadcast to shell_process. */
@@ -673,12 +637,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             break;
           }
           case STATUS_STATS: {
-#ifndef BBS_SERIAL_TRANSPORT
-            bbs_login_defer_op = BBS_LOGIN_DEFER_FINISH;
-            process_post(&bbs_login_process, PROCESS_EVENT_POLL, NULL);
-#else
             bbs_login();
-#endif
             break;
           }
           case STATUS_LOCK:
