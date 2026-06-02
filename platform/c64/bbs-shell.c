@@ -49,29 +49,37 @@ PROCESS(shell_server_process, "Shell server");
 PROCESS(bbs_timer_process, "timer");
 
 PROCESS(bbs_login_process, "login");
-SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_process);
+/* Not shell_register_command'd — must survive killall() between sessions. */
+SHELL_COMMAND(bbs_login_command, "login", "", &bbs_login_process);
 
-/* post_synch from telnet would re-enter login/bank PT; defer with process_post.
- * Line buffer lives in LOWBSS ($A1F3..$A27F) to keep BSSHI stack gap. */
+#ifdef BBS_SERIAL_TRANSPORT
+/* Defer serial input via process_post (same as f362414). */
 #pragma bss-name(push, "LOWBSS")
-static char shell_deferred_input_line[TELNETD_CONF_LINELEN + 1];
+static char shell_serial_input_line[TELNETD_CONF_LINELEN + 1];
 #pragma bss-name(pop)
-static struct shell_input shell_deferred_input_holder;
+static struct shell_input shell_serial_input_holder;
+#endif
 
 /*---------------------------------------------------------------------------*/
 PROCESS(version_process, "version");
-SHELL_COMMAND(version_command, "v", "v : version", &version_process);
+//SHELL_COMMAND(version_command, "v", "v : version", &version_process);
+SHELL_COMMAND(version_command, "v", "", &version_process);
 
-SHELL_COMMAND(help_command, "?", "? : help", &shell_process);
+PROCESS(help_command_process, "help");
+SHELL_COMMAND(help_command, "?", "", &help_command_process);
 
 PROCESS(shell_exit_process, "exit");
-SHELL_COMMAND(quit_command, "q", "q : quit", &shell_exit_process);
+//SHELL_COMMAND(quit_command, "q", "q : quit", &shell_exit_process);
+SHELL_COMMAND(quit_command, "q", "", &shell_exit_process);
+
 
 PROCESS(settime_process, "settime");
-SHELL_COMMAND(settime_command, "t", "t : time", &settime_process);
+//SHELL_COMMAND(settime_command, "t", "t : time", &settime_process);
+SHELL_COMMAND(settime_command, "t", "", &settime_process);
 
 PROCESS(movie_process, "movies");
-SHELL_COMMAND(movie_command, "m", "m : movies", &movie_process);
+//SHELL_COMMAND(movie_command, "m", "m : movies", &movie_process);
+SHELL_COMMAND(movie_command, "m", "", &movie_process);
 
 /*---------------------------------------------------------------------------*/
 void bbs_defaults(void)
@@ -313,12 +321,6 @@ void bbs_lock(void)
 void bbs_unlock(void)
 {
   //char message[20];
-  log_message("\x1e","bbs disconnect");
-
-  //Change border colour to black
-  bordercolor(0);
-  //Turn on the screen again
-  poke(0xd011, peek(0xd011) | 0x10);
 
   //Clean up any open files
   /* Do not clear stream sent count mid-logout: ACK path still drains buf.
@@ -326,12 +328,14 @@ void bbs_unlock(void)
   cbm_close(BBS_FILE_CHANNEL);
   cbm_close(BBS_MEDIA_CHANNEL);
 
-
-
   bbs_status.status=STATUS_UNLOCK;
   bbs_locked=0;
   process_exit(&bbs_timer_process);
-  //shell_exit();
+  bordercolor(0);
+  /* KERNAL logscr writes $0400; only safe when the outbound ring is empty. */
+  if(buf.used == 0u) {
+    log_message("\x1e","bbs disconnect");
+  }
   bbs_transport_session_close();
 }
 /*---------------------------------------------------------------------------*/
@@ -812,6 +816,27 @@ PROCESS_THREAD(movie_process, ev, data)
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
+PROCESS_THREAD(help_command_process, ev, data)
+{
+  struct shell_command *c;
+
+  PROCESS_BEGIN();
+#ifdef BBS_SERIAL_TRANSPORT
+  PROCESS_PAUSE();
+#endif
+
+  shell_output_str(&help_command, "available commands:", "");
+  for(c = list_head(commands); c != NULL; c = c->next) {
+    if(c->description[0] != '\0') {
+      shell_output_str(&help_command, c->description, "");
+    } else {
+      shell_output_str(&help_command, c->command, "");
+    }
+  }
+
+  PROCESS_END();
+}
+/*---------------------------------------------------------------------------*/
 PROCESS_THREAD(shell_exit_process, ev, data)
 {
 
@@ -821,6 +846,7 @@ PROCESS_THREAD(shell_exit_process, ev, data)
 
   PROCESS_BEGIN();
 	enc0 = (bbs_status.encoding == 0);
+
 	if(enc0) {
 		shell_output_str(NULL, "\x8e", "");
 	}
@@ -840,8 +866,6 @@ PROCESS_THREAD(shell_exit_process, ev, data)
 		    bbs_status.encoding_suffix, board.sys_device, 0);
 
 	}
-	
-	log_message("\x05logout: ", bbs_user.user_name);
 
 	PROCESS_PAUSE();
 
@@ -1166,8 +1190,11 @@ input_to_child_command(struct shell_command *c,
 void
 shell_input(char *commandline, int commandline_len)
 {
+  struct shell_input input;
+#ifdef BBS_SERIAL_TRANSPORT
   int clen;
   int postres;
+#endif
 
   if(bbs_status.status == STATUS_XFER) {
     return;
@@ -1180,64 +1207,38 @@ shell_input(char *commandline, int commandline_len)
   }
 
   if(!process_is_running(front_process)) {
+    front_process = &shell_process;
+  }
+  if(process_is_running(front_process)) {
+    input.data1 = commandline;
+    input.len1 = commandline_len;
+    input.data2 = "";
+    input.len2 = 0;
+#ifdef BBS_SERIAL_TRANSPORT
+    clen = commandline_len;
+    if(clen > TELNETD_CONF_LINELEN) {
+      clen = TELNETD_CONF_LINELEN;
+    }
+    memcpy(shell_serial_input_line, commandline, (unsigned int)clen);
+    shell_serial_input_line[clen] = '\0';
+    shell_serial_input_holder.data1 = shell_serial_input_line;
+    shell_serial_input_holder.len1 = clen;
+    shell_serial_input_holder.data2 = "";
+    shell_serial_input_holder.len2 = 0;
+    postres = process_post(front_process, shell_event_input,
+        &shell_serial_input_holder);
+    if(postres != PROCESS_ERR_OK) {
       front_process = &shell_process;
+      (void)process_post(front_process, shell_event_input,
+          &shell_serial_input_holder);
     }
-    if(process_is_running(front_process)) {
-      struct shell_input input;
-
-      clen = commandline_len;
-      if(clen > TELNETD_CONF_LINELEN) {
-        clen = TELNETD_CONF_LINELEN;
-      }
-#ifndef BBS_SERIAL_TRANSPORT
-      input.data1 = commandline;
-      input.len1 = clen;
-      input.data2 = "";
-      input.len2 = 0;
-      if(front_process == &bbs_login_process) {
-        memcpy(shell_deferred_input_line, commandline, (unsigned int)clen);
-        shell_deferred_input_line[clen] = '\0';
-        shell_deferred_input_holder.data1 = shell_deferred_input_line;
-        shell_deferred_input_holder.len1 = clen;
-        shell_deferred_input_holder.data2 = "";
-        shell_deferred_input_holder.len2 = 0;
-        postres = process_post(front_process, shell_event_input,
-            &shell_deferred_input_holder);
-        if(postres != PROCESS_ERR_OK) {
-          front_process = &shell_process;
-          shell_deferred_input_holder.data1 = shell_deferred_input_line;
-          shell_deferred_input_holder.len1 = clen;
-          shell_deferred_input_holder.data2 = "";
-          shell_deferred_input_holder.len2 = 0;
-          (void)process_post(front_process, shell_event_input,
-              &shell_deferred_input_holder);
-        }
-      } else {
-        process_post_synch(front_process, shell_event_input, &input);
-      }
-#else /* BBS_SERIAL_TRANSPORT */
-      memcpy(shell_deferred_input_line, commandline, (unsigned int)clen);
-      shell_deferred_input_line[clen] = '\0';
-      shell_deferred_input_holder.data1 = shell_deferred_input_line;
-      shell_deferred_input_holder.len1 = clen;
-      shell_deferred_input_holder.data2 = "";
-      shell_deferred_input_holder.len2 = 0;
-      postres = process_post(front_process, shell_event_input,
-          &shell_deferred_input_holder);
-      if(postres != PROCESS_ERR_OK) {
-        front_process = &shell_process;
-        shell_deferred_input_holder.data1 = shell_deferred_input_line;
-        shell_deferred_input_holder.len1 = clen;
-        shell_deferred_input_holder.data2 = "";
-        shell_deferred_input_holder.len2 = 0;
-        (void)process_post(front_process, shell_event_input,
-            &shell_deferred_input_holder);
-      }
-#endif /* BBS_SERIAL_TRANSPORT */
-    }
-    if(process_is_running(&bbs_timer_process)) {
-      process_post(&bbs_timer_process, shell_event_input, NULL);
-    }
+#else
+    process_post_synch(front_process, shell_event_input, &input);
+#endif
+  }
+  if(process_is_running(&bbs_timer_process)) {
+    process_post(&bbs_timer_process, shell_event_input, NULL);
+  }
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -1441,12 +1442,9 @@ shell_start(void)
   if(!bbs_try_lock_for_session()) {
     return;
   }
-  /* Show encoding menu immediately; load msg bank while user reads it. */
-  shell_preconnect_banner();
   if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
     log_message("\x96", "msg bank");
   }
-  /* Bank load resets the ring; show the menu again. */
   shell_preconnect_banner();
   front_process = &bbs_login_process;
 }
@@ -1455,6 +1453,9 @@ void
 shell_stop(void)
 {
   //log_message("\x9e", "shell stop");
+#ifndef BBS_SERIAL_TRANSPORT
+  bbs_transport_flush_outbound();
+#endif
   bbs_unlock();
   killall();
   bbs_bank_forget();

@@ -80,11 +80,6 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
 
   read_layout = (unsigned char)(bbs_status.status == STATUS_READ ? 1u : 0u);
 
-  /* Blank screen for banners only; message read uses same RAM as the ring. */
-  if(read_layout == 0u) {
-    poke(0xd011, peek(0xd011) & 0xef);
-  }
-
   sprintf(file, "%s%s",szBannerFile, fileSuffix);
   log_message("\x9fread: ", file);
 
@@ -193,12 +188,11 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
     }
   }
 
-  if(read_layout == 0u) {
-    poke(0xd011, peek(0xd011) | 0x10);
-  }
 #ifdef BBS_SERIAL_TRANSPORT
   bbs_serial_flush_outbound();
   bbs_serial_banner_end();
+#else
+  bbs_transport_flush_outbound();
 #endif
 }
 

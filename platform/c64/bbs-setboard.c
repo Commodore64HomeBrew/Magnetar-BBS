@@ -27,7 +27,9 @@ void bbs_sub_banner(void)
 
 
 PROCESS(bbs_setboard_process, "board");
-SHELL_COMMAND(bbs_setboard_command, "s", "s : select board", &bbs_setboard_process);
+//SHELL_COMMAND(bbs_setboard_command, "s", "s : select board", &bbs_setboard_process);
+SHELL_COMMAND(bbs_setboard_command, "s", "", &bbs_setboard_process);
+
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_setboard_process, ev, data)
 {
@@ -80,7 +82,9 @@ PROCESS_THREAD(bbs_setboard_process, ev, data)
 
 /*---------------------------------------------------------------------------*/
 PROCESS(bbs_nextboard_process, "nextboard");
-SHELL_COMMAND(bbs_nextboard_command, "+", "+ : next board", &bbs_nextboard_process);
+//SHELL_COMMAND(bbs_nextboard_command, "+", "+ : next board", &bbs_nextboard_process);
+SHELL_COMMAND(bbs_nextboard_command, "+", "", &bbs_nextboard_process);
+
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_nextboard_process, ev, data)
 {
@@ -97,7 +101,9 @@ PROCESS_THREAD(bbs_nextboard_process, ev, data)
 
 /*---------------------------------------------------------------------------*/
 PROCESS(bbs_prevboard_process, "prevboard");
-SHELL_COMMAND(bbs_prevboard_command, "-", "- : prev board", &bbs_prevboard_process);
+//SHELL_COMMAND(bbs_prevboard_command, "-", "- : prev board", &bbs_prevboard_process);
+SHELL_COMMAND(bbs_prevboard_command, "-", "", &bbs_prevboard_process);
+
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_prevboard_process, ev, data)
 {

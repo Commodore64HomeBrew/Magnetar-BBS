@@ -405,7 +405,8 @@ buf_ack_sent(unsigned int n)
   buf.used -= n;
   if(buf.used == 0u) {
     buf.head = 0u;
-    if(bbs_status.status != STATUS_STREAM &&
+    if(s.state != STATE_CLOSE &&
+        bbs_status.status != STATUS_STREAM &&
         bbs_status.status != STATUS_XFER &&
         bbs_status.status != STATUS_READ &&
         bbs_status.status != STATUS_DIRLIST) {

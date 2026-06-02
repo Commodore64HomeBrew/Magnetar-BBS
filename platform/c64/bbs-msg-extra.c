@@ -127,13 +127,17 @@ stats_chart_done:
 }
 
 PROCESS(sys_stats_process, "sysstats");
-SHELL_COMMAND(sys_stats_command, "x", "x : bbs stats", &sys_stats_process);
+//SHELL_COMMAND(sys_stats_command, "x", "x : bbs stats", &sys_stats_process);
+SHELL_COMMAND(sys_stats_command, "x", "", &sys_stats_process);
 
 PROCESS(usr_stats_process, "usrstats");
-SHELL_COMMAND(usr_stats_command, "y", "y : your stats", &usr_stats_process);
+//SHELL_COMMAND(usr_stats_command, "y", "y : your stats", &usr_stats_process);
+SHELL_COMMAND(usr_stats_command, "y", "", &usr_stats_process);
+
 
 PROCESS(info_process, "info");
-SHELL_COMMAND(info_command, "i", "i : bbs info", &info_process);
+//SHELL_COMMAND(info_command, "i", "i : bbs info", &info_process);
+SHELL_COMMAND(info_command, "i", "", &info_process);
 
 PROCESS_THREAD(sys_stats_process, ev, data)
 {
