@@ -4,4 +4,4 @@
 .segment "SHARED"
 
 _bbs_shared_data:
-        .res 845, 0
+        .res 872, 0

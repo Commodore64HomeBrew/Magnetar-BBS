@@ -54,6 +54,7 @@ void bbs_transport_session_close(void);
 void bbs_transport_busy_reject(void);
 void bbs_transport_stream_clear_sent(void);
 void bbs_transport_buf_reset(void);
+void bbs_transport_buf_discard(void);
 /* Screen RAM layout: full 1 KiB telnet ring (default). */
 void bbs_scr_layout_output(void);
 /* Screen RAM layout: RX/TX/XMODEM partition (call only for upload/download). */
@@ -71,6 +72,8 @@ void telnetd_quit(void);
 void telnetd_kick_disconnect(void);
 void telnetd_kick_stream(void);
 void bbs_transport_poll(void);
+/* Drive outbound TCP/serial without process_run (safe during shell command). */
+void bbs_transport_poll_send(void);
 /* Drain outbound ring before XMODEM/movie so the user sees the prompt first. */
 void bbs_transport_flush_outbound(void);
 #ifdef BBS_SERIAL_TRANSPORT

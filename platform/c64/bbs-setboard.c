@@ -23,7 +23,6 @@ void bbs_sub_banner(void)
   bbs_fmt_petscii_name_ln((char *)message,
       (const char *)board.sub_names[bbs_status.board_id]);
   shell_output_str(NULL, (char *)message, "");
-  shell_prompt(bbs_status.prompt);
 }
 
 

@@ -1,10 +1,6 @@
 #include "bbs-fmt.h"
 #include <stddef.h>
 
-#ifndef BBS_BANK_BUILD
-#pragma bss-name("LOWBSS")
-#endif
-
 #ifdef BBS_BANK_BUILD
 #include "bbs-defs.h"
 #endif

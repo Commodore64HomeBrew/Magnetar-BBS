@@ -3,8 +3,6 @@
  */
 #include "bbs-wrap.h"
 
-#pragma bss-name("LOWBSS")
-
 unsigned short
 bws_find_break_back(
     const unsigned char *p,

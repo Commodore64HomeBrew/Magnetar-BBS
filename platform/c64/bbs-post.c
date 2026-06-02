@@ -10,8 +10,8 @@
 #include "bbs-shell.h"
 #include "bbs-post.h"
 #include "bbs-file.h"
-#include "bbs-telnetd.h"
 #include "bbs-bank-macros.h"
+#include <conio.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -38,7 +38,6 @@ end_post(void)
   poke(0xd011, peek(0xd011) | 0x10);
   bordercolor(2);
   set_prompt();
-  shell_prompt(bbs_status.prompt);
 }
 
 static int

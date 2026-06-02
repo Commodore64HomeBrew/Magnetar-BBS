@@ -18,6 +18,9 @@
 #define BBS_BANK_ID_POST    2u
 #define BBS_BANK_ID_MSG     3u
 #define BBS_BANK_ID_UI      4u
+#define BBS_BANK_ID_XMODEM  5u
+
+#define BBS_XFER_CWD_LEN    24u
 
 struct shell_command;
 struct shell_input;
@@ -27,7 +30,7 @@ typedef struct bbs_shared_s {
   unsigned char sig0;
   unsigned char sig1;
   unsigned char active_bank;
-  unsigned char pad;
+  char xfer_cwd[BBS_XFER_CWD_LEN];
   BBS_BOARD_REC s_board;
   BBS_CONFIG_REC s_config;
   BBS_STATUS_REC s_status;
@@ -42,8 +45,10 @@ typedef struct bbs_shared_s {
   void (*shell_register_command)(struct shell_command *c);
   void (*shell_unregister_command)(struct shell_command *c);
   void (*transport_poll)(void);
+  void (*transport_poll_send)(void);
   void (*transport_flush_outbound)(void);
   void (*transport_buf_reset)(void);
+  void (*transport_buf_discard)(void);
   void (*scr_layout_output)(void);
   void (*scr_layout_xfer)(void);
   void (*stream_begin)(void);

@@ -1,0 +1,17 @@
+# Build outputs
+*.o
+*.a
+*.map
+*.prg
+*.bin
+*.c64
+*.eth
+obj_c64/
+*.after
+*.textClipping
+
+# Deploy copies from build.sh
+*.bin.prg
+magbbs.prg
+magserial.prg
+mserial.prg

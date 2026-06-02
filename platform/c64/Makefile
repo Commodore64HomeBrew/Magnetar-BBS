@@ -44,13 +44,13 @@ endif
 all: $(CONTIKI_PROJECT) banks memcheck
 
 # Banks: bbs-bankN.bin (raw images at $B000), not legacy .mod relocatables.
-banks: bbs-bank1.bin bbs-bank2.bin bbs-bank3.bin bbs-bank4.bin
+banks: bbs-bank1.bin bbs-bank2.bin bbs-bank3.bin bbs-bank4.bin bbs-bank5.bin
 
 .PHONY: memcheck
 memcheck: $(CONTIKI_PROJECT).c64 banks
 	@echo "  MEMCHECK  core"
 	@python3 $(CURDIR)/check-memmap.py core contiki-c64.map $(CONTIKI_PROJECT).c64
-	@for n in 1 2 3 4; do \
+	@for n in 1 2 3 4 5; do \
 	  echo "  MEMCHECK  bank$$n"; \
 	  python3 $(CURDIR)/check-memmap.py bank bbs-bank$$n.prg.map bbs-bank$$n.bin; \
 	done
@@ -148,6 +148,24 @@ $(OBJECTDIR)/bbs-bank-xfer.o: bbs-bank-xfer.c | $(OBJECTDIR)
 	@echo "  CC        $<"
 	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -o $@ $<
 
+$(OBJECTDIR)/bbs-xfer-xmodem-bank.o: bbs-xfer-xmodem.c | $(OBJECTDIR)
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -Os -o $@ $<
+
+$(OBJECTDIR)/bbs-bank-xmodem.o: bbs-bank-xmodem.c | $(OBJECTDIR)
+	@echo "  CC        $<"
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -o $@ $<
+
+$(OBJECTDIR)/bbs-bank-hdr-xmodem.o: bbs-bank-hdr-xmodem.S | $(OBJECTDIR)
+	@echo "  AS        $<"
+	@$(AS) $(ASFLAGS) -o $@ $<
+
+bbs-bank5.prg: $(OBJECTDIR)/bbs-bank-hdr-xmodem.o $(OBJECTDIR)/bbs-bank-xmodem.o $(OBJECTDIR)/bbs-xfer-xmodem-bank.o $(OBJECTDIR)/bbs-xmodem-bank.o $(BANK_CC65_LIB)
+	@echo "  LD       " $@
+	$(Q)$(LD) -o $@ -C $(BANK_CFG) -m $@.map $(filter-out $(BANK_CC65_LIB),$^) $(BANK_CC65_LIB)
+
+bbs-bank5.bin: bbs-bank5.prg
+
 $(OBJECTDIR)/bbs-xmodem-bank.o: bbs-xmodem.S | $(OBJECTDIR)
 	@echo "  AS        $<"
 	@$(AS) $(ASFLAGS) -I. -o $@ $<
@@ -168,7 +186,7 @@ $(OBJECTDIR)/bbs-bank-hdr-ui.o: bbs-bank-hdr-ui.S | $(OBJECTDIR)
 	@echo "  AS        $<"
 	@$(AS) $(ASFLAGS) -o $@ $<
 
-bbs-bank1.prg: $(OBJECTDIR)/bbs-bank-hdr-xfer.o $(OBJECTDIR)/bbs-bank-xfer.o $(OBJECTDIR)/bbs-transfer-bank.o $(OBJECTDIR)/bbs-xmodem-bank.o $(BANK_CC65_LIB)
+bbs-bank1.prg: $(OBJECTDIR)/bbs-bank-hdr-xfer.o $(OBJECTDIR)/bbs-bank-xfer.o $(OBJECTDIR)/bbs-transfer-bank.o $(BANK_CC65_LIB)
 	@echo "  LD       " $@
 	$(Q)$(LD) -o $@ -C $(BANK_CFG) -m $@.map $(filter-out $(BANK_CC65_LIB),$^) $(BANK_CC65_LIB)
 

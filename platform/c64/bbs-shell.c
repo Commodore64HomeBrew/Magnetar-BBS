@@ -12,8 +12,6 @@
 #include "contiki.h"
 #include "contiki-lib.h"
 
-#pragma bss-name("LOWBSS")
-
 #include "bbs-resident.h"
 #include "bbs-shell.h"
 #include "bbs-encodings.h"
@@ -21,7 +19,6 @@
 #include "bbs-transfer.h"
 #include "bbs-file.h"
 #include "bbs-telnetd.h"
-//#include <em.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,9 +39,9 @@ extern BBS_BUFFER buf;
 unsigned short bbs_locked=0;
 unsigned short set_step=0;
 
-static unsigned char bbs_xfer_prepare_command(const char *cmd);
 static unsigned char bbs_command_bank_id(const char *cmd, int len);
 static unsigned char bbs_bank_route_command(const char *cmd, int len);
+static unsigned char bbs_xfer_bank_command(unsigned char bank_id);
 
 /*---------------------------------------------------------------------------*/
 PROCESS(shell_process, "Shell");
@@ -54,16 +51,18 @@ PROCESS(bbs_timer_process, "timer");
 PROCESS(bbs_login_process, "login");
 SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_process);
 
-/* post_synch from telnet would re-enter login/bank PT; defer with process_post. */
+/* post_synch from telnet would re-enter login/bank PT; defer with process_post.
+ * Line buffer lives in LOWBSS ($A1F3..$A27F) to keep BSSHI stack gap. */
+#pragma bss-name (push, "LOWBSS")
 static char shell_deferred_input_line[TELNETD_CONF_LINELEN + 1];
+#pragma bss-name (pop)
 static struct shell_input shell_deferred_input_holder;
 
 /*---------------------------------------------------------------------------*/
 PROCESS(version_process, "version");
 SHELL_COMMAND(version_command, "v", "v : version", &version_process);
 
-PROCESS(help_command_process, "help");
-SHELL_COMMAND(help_command, "?", "? : help", &help_command_process);
+SHELL_COMMAND(help_command, "?", "? : help", &shell_process);
 
 PROCESS(shell_exit_process, "exit");
 SHELL_COMMAND(quit_command, "q", "q : quit", &shell_exit_process);
@@ -410,6 +409,9 @@ void bbs_login()
 
  	//**********************************************************************
 	telnetd_discard_pending_rx();
+#ifndef BBS_SERIAL_TRANSPORT
+	bbs_transport_flush_outbound();
+#endif
 	bbs_transport_buf_reset();
 	process_exit(&bbs_timer_process);
 	bbs_status.status=STATUS_LOCK;
@@ -438,6 +440,11 @@ void bbs_login()
 	//Increment the dialy calls total:
 	++bbs_sysstats.daily_calls[bbs_sysstats.day_ptr];
 
+	if(bbs_bank_id_active() != BBS_BANK_ID_MSG) {
+		if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
+			shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
+		}
+	}
 
 	//Display the Centronian logo and system stats:
 	bbs_banner(board.sys_prefix, BBS_BANNER_LOGO, bbs_status.encoding_suffix, board.sys_device, 0);
@@ -457,20 +464,15 @@ void bbs_login()
 	shell_output_str(NULL, "\r\n\x05? \x9fto list commands", "");
 	shell_output_str(NULL, "\x05s \x9eselect msg board\r\n", "");
 
-	if(bbs_bank_id_active() != BBS_BANK_ID_MSG) {
-		if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
-			shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
-		} else {
-			bbs_transport_buf_reset();
-		}
-	}
-
 	//Display the sub banner:
 	bbs_sub_banner_core();
 	set_prompt();
 	shell_prompt(bbs_status.prompt);
 	process_start(&bbs_timer_process, NULL);
   front_process=&shell_process;
+#ifndef BBS_SERIAL_TRANSPORT
+  bbs_transport_flush_outbound();
+#endif
 }
 
 
@@ -479,21 +481,17 @@ login_stats_continue(void)
 {
   bbs_record_last_caller();
   telnetd_discard_pending_rx();
-#ifndef BBS_SERIAL_TRANSPORT
-  bbs_transport_flush_outbound();
-  bbs_transport_buf_reset();
-#endif
   if(bbs_bank_load(BBS_BANK_ID_UI) != 0u &&
      BBS_BANK_HDR->run_sys_stats != NULL) {
     BBS_BANK_HDR->run_sys_stats();
-#ifndef BBS_SERIAL_TRANSPORT
-    bbs_transport_flush_outbound();
-#endif
   } else {
     shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
   }
   shell_output_str(NULL, "\r\n\x9ehit return to continue", "");
   bbs_status.status = STATUS_STATS;
+#ifndef BBS_SERIAL_TRANSPORT
+  bbs_transport_flush_outbound();
+#endif
 }
 
 /*---------------------------------------------------------------------------*/
@@ -506,13 +504,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
 
   while(1) {
 
-    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || ev == PROCESS_EVENT_TIMER ||
-        ev == PROCESS_EVENT_POLL);
-
-    if(ev == PROCESS_EVENT_POLL && bbs_status.status == STATUS_LOGIN_RUN) {
-      bbs_login();
-      continue;
-    }
+    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || ev == PROCESS_EVENT_TIMER);
 
     if (ev == PROCESS_EVENT_TIMER) {
       /* Login timeout only; session timeout is broadcast to shell_process. */
@@ -653,13 +645,14 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             break;
           }
           case STATUS_STATS: {
+            if(input->len1 <= 0) {
+              break;
+            }
             telnetd_discard_pending_rx();
 #ifndef BBS_SERIAL_TRANSPORT
             bbs_transport_flush_outbound();
-            bbs_transport_buf_reset();
 #endif
-            bbs_status.status = STATUS_LOGIN_RUN;
-            process_post(&bbs_login_process, PROCESS_EVENT_POLL, NULL);
+            bbs_login();
             break;
           }
           case STATUS_LOCK:
@@ -816,15 +809,6 @@ PROCESS_THREAD(movie_process, ev, data)
 
   PROCESS_PAUSE();
   set_prompt();
-  shell_prompt(bbs_status.prompt);
-  PROCESS_END();
-}
-/*---------------------------------------------------------------------------*/
-PROCESS_THREAD(help_command_process, ev, data)
-{
-  PROCESS_BEGIN();
-  bbs_banner(board.sys_prefix, BBS_BANNER_MENU, bbs_status.encoding_suffix, board.sys_device, 0);
-
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
@@ -936,6 +920,19 @@ PROCESS_THREAD(settime_process, ev, data)
 
 
 
+static void
+bbs_show_menu(void)
+{
+  bbs_banner(board.sys_prefix, BBS_BANNER_MENU, bbs_status.encoding_suffix,
+      board.sys_device, 0);
+}
+
+static unsigned char
+bbs_xfer_bank_command(unsigned char bank_id)
+{
+  return (bank_id == BBS_BANK_ID_XFER || bank_id == BBS_BANK_ID_XMODEM) ? 1u : 0u;
+}
+
 static unsigned char
 bbs_command_bank_id(const char *cmd, int len)
 {
@@ -943,6 +940,7 @@ bbs_command_bank_id(const char *cmd, int len)
     switch(cmd[0]) {
     case 'u':
     case 'd':
+      return BBS_BANK_ID_XMODEM;
     case '$':
       return BBS_BANK_ID_XFER;
     case 'w':
@@ -982,6 +980,8 @@ bbs_bank_unavailable_msg(unsigned char bank_id)
     return "\n\rmessage bank unavailable\n\r";
   case BBS_BANK_ID_UI:
     return "\n\rstats bank unavailable\n\r";
+  case BBS_BANK_ID_XMODEM:
+    return "\n\rdownload/upload bank unavailable\n\r";
   default:
     return "\n\rbank unavailable\n\r";
   }
@@ -997,7 +997,7 @@ bbs_bank_route_command(const char *cmd, int len)
     return 1u;
   }
 
-  if(bank_id == BBS_BANK_ID_XFER && bbs_status.status == STATUS_XFER) {
+  if(bbs_xfer_bank_command(bank_id) != 0u && bbs_status.status == STATUS_XFER) {
     shell_output_str(NULL, "\n\rtransfer active\n\r", "");
     return 0u;
   }
@@ -1041,13 +1041,6 @@ start_command(char *commandline, struct shell_command *child)
     commandline++;
   }
 
-  /* Find the next command in a pipeline and start it. */
-  /*next = find_pipe(commandline);
-  if(next != NULL) {
-    *next = 0;
-    child = start_command(next + 1, child);
-  }*/
-
   /* Separate the command arguments, and remove braces. */
   //replace_braces(commandline);
   args = strchr(commandline, ' ');
@@ -1074,6 +1067,12 @@ start_command(char *commandline, struct shell_command *child)
     return NULL;
   }
 
+  if(command_len == 1 && commandline[0] == '?') {
+    bbs_show_menu();
+    command_kill(child);
+    return NULL;
+  }
+
   
   /* Go through list of commands to find a match for the first word in
      the command line. */
@@ -1087,20 +1086,15 @@ start_command(char *commandline, struct shell_command *child)
     shell_output_str(NULL, commandline, ": cmd not found (try '?')");
     command_kill(child);
     c = NULL;
-  }/* else if(process_is_running(c->process) || child == c) {
-    shell_output_str(NULL, commandline, ": command already running");
-    c->child = NULL;
-    c = NULL;
-  }*/ else {
+  } else {
     c->child = child;
     /*    printf("shell: start_command starting '%s'\n", c->process->name);*/
     /* Start a new process for the command. */
-    if(bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_XFER) {
+    if(bbs_xfer_bank_command(bbs_command_bank_id(commandline, command_len)) != 0u) {
       if(bbs_bank_prepare_command(commandline) == 0u) {
         command_kill(child);
         return NULL;
       }
-      bbs_transport_flush_outbound();
       command_kill(child);
       c = NULL;
     } else if(bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_UI) {
@@ -1141,15 +1135,15 @@ shell_start_command(char *commandline, int commandline_len,
 
   c = start_command(commandline, child);
 
-  /* Return a pointer to the started process, so that the caller can
-     wait for the process to complete. */
-  if(c != NULL && started_process != NULL) {
-    *started_process = c->process;
-    if(background) {
-      return SHELL_BACKGROUND;
-    } else {
+  if(started_process != NULL) {
+    if(c != NULL) {
+      *started_process = c->process;
+      if(background) {
+        return SHELL_BACKGROUND;
+      }
       return SHELL_FOREGROUND;
     }
+    *started_process = NULL;
   }
   return SHELL_NOTHING;
 }
@@ -1185,17 +1179,7 @@ shell_input(char *commandline, int commandline_len)
     return;
   }
 
-  /*  printf("shell_input front_process '%s'\n", front_process->name);*/
-
-  //log_message("cmd",commandline);
-  //if(commandline[0] == '~' &&
-  //   commandline[1] == 'K') {
-    /*    process_start(&shell_killall_process, commandline);*/
-  //  if(front_process != &shell_process) {
-  //    process_exit(front_process);
-  //  }
-  //} else {
-    if(!process_is_running(front_process)) {
+  if(!process_is_running(front_process)) {
       front_process = &shell_process;
     }
     if(process_is_running(front_process)) {
@@ -1254,13 +1238,6 @@ shell_input(char *commandline, int commandline_len)
     if(process_is_running(&bbs_timer_process)) {
       process_post(&bbs_timer_process, shell_event_input, NULL);
     }
-  //}
-}
-
-void
-bbs_bank_xfer_feed(unsigned char c)
-{
-  bbs_bank_feed(c);
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -1268,7 +1245,6 @@ shell_output_str(struct shell_command *c, char *text1, char *text2)
 {
 
 	static const char crnl[2] = {ISO_cr, ISO_nl};
-	//unsigned int len1,len2;
 
 	unsigned int len1 = (int)strlen(text1);
 	unsigned int len2 = (int)strlen(text2);

@@ -139,7 +139,6 @@ void shell_start_after_probe(void);
  *
  */
 void shell_input(char *commandline, int commandline_len);
-void bbs_bank_xfer_feed(unsigned char c);
 
 /**
  * \brief      Stop the shell

@@ -30,7 +30,7 @@
 /* Stream chunk size; movie UI caps speed at 10 (serial throttle). */
 #define MAX_STREAM_SPEED        10
 #ifndef BBS_SERIAL_TRANSPORT
-/* TCP: read/send a full segment per ACK (serial uses MAX_STREAM_SPEED). */
+/* TCP: cap non-movie ring sends; movies use bbs_status.speed (1..MAX_STREAM_SPEED). */
 #define TELNETD_STREAM_CHUNK    256
 #endif
 
@@ -76,7 +76,6 @@
 #define BBS_PET40_SUFFIX       "-c"
 #define BBS_PET22_SUFFIX       "-v"
 #define BBS_ASCII_SUFFIX       "-a"
-//#define BBS_BASH_SUFFIX       "-b"
 #define BBS_PREFIX_SUB         "s-"
 #define BBS_PREFIX_USER        "u-"
 
@@ -108,8 +107,6 @@
 #define BBS_CFG_FILE           "bbs-cfg"
 #define BBS_SETUP_FILE         "bbs-setup"
 
-//#define BBS_STRING_BOARDINFO "-id- -------board------- -acl- -msgs-"
-//#define BBS_STRING_LINEMAX "  enter message (max. 40 chars per line)"
 #define BBS_STRING_EDITH40 "---------+---------+---------+---------+"
 #define BBS_STRING_EDITH22 "----------+----------+"
 
@@ -135,6 +132,7 @@
 #define STATUS_STREAM  10
 #define STATUS_XFER    11
 #define STATUS_LOGIN_RUN 12
+#define STATUS_DIRLIST 13
 
 /* File transfer area (under board.transfer_prefix). */
 #define BBS_XFER_MAX_FILES  4

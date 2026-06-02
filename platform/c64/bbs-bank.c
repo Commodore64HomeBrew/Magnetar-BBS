@@ -196,6 +196,8 @@ bbs_bank_filename(unsigned char bank_id)
     return "bbs-bank3.bin";
   case BBS_BANK_ID_UI:
     return "bbs-bank4.bin";
+  case BBS_BANK_ID_XMODEM:
+    return "bbs-bank5.bin";
   default:
     return NULL;
   }
@@ -218,8 +220,10 @@ bbs_shared_init(void)
   BBS_SHARED->shell_register_command = shell_register_command;
   BBS_SHARED->shell_unregister_command = shell_unregister_command;
   BBS_SHARED->transport_poll = bbs_transport_poll;
+  BBS_SHARED->transport_poll_send = bbs_transport_poll_send;
   BBS_SHARED->transport_flush_outbound = bbs_transport_flush_outbound;
   BBS_SHARED->transport_buf_reset = bbs_transport_buf_reset;
+  BBS_SHARED->transport_buf_discard = bbs_transport_buf_discard;
   BBS_SHARED->scr_layout_output = bbs_scr_layout_output;
   BBS_SHARED->scr_layout_xfer = bbs_scr_layout_xfer;
   BBS_SHARED->stream_begin = bbs_stream_begin;
@@ -327,12 +331,7 @@ bbs_bank_load(unsigned char bank_id)
     bbs_bank_unload();
     goto load_failed;
   }
-  /* Reset ring after bank swap; flush first only when replacing another bank. */
-#ifndef BBS_SERIAL_TRANSPORT
-  if(had_bank != 0u) {
-    bbs_transport_flush_outbound();
-  }
-#endif
+  /* Drop stale ring after swap; do not flush here (process_run during load re-entered shell). */
   bbs_transport_buf_reset();
 #if BBS_BANK_DEBUG
   bbs_bank_dbg_ok(bank_id, total, filename);

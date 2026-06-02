@@ -7,6 +7,7 @@
 
 #include "bbs-setup.h"
 #include "bbs-file.h"
+#include <string.h>
 
 void clearScreen(void) {
 
@@ -222,12 +223,29 @@ void bbs_stats(){
   bbs_path_sys_colon((char *)file, BBS_STATS_FILE);
 
   cbm_open(10, board.sys_device, 10, file);
+  memset(&bbs_sysstats, 0, sizeof(bbs_sysstats));
   cbm_read(10, &bbs_sysstats, 2);
 
   fsize = cbm_read(10, &bbs_sysstats, sizeof(bbs_sysstats));
   cbm_close(10);
 
-  if (fsize > 0) {
+  if(fsize == (int)sizeof(BBS_SYSTEM_STATS_V1)) {
+    BBS_SYSTEM_STATS_V1 v1;
+    unsigned char i;
+
+    memcpy(&v1, &bbs_sysstats, sizeof(v1));
+    memset(&bbs_sysstats, 0, sizeof(bbs_sysstats));
+    for(i = 0u; i < BBS_STATS_USRS; ++i) {
+      memcpy(bbs_sysstats.last_callers[i], v1.last_callers[i], 12u);
+    }
+    bbs_sysstats.caller_ptr = v1.caller_ptr;
+    bbs_sysstats.total_calls = v1.total_calls;
+    bbs_sysstats.total_msgs = v1.total_msgs;
+    memcpy(bbs_sysstats.daily_calls, v1.daily_calls, sizeof(v1.daily_calls));
+    memcpy(bbs_sysstats.daily_msgs, v1.daily_msgs, sizeof(v1.daily_msgs));
+    bbs_sysstats.day_ptr = v1.day_ptr;
+    printf("\x99", "stats loaded from file");
+  } else if (fsize > 0) {
     printf("\x99", "stats loaded from file");
   }
   else{

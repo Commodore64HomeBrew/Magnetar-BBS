@@ -46,6 +46,7 @@
 #include "bbs-encodings.h"
 #include "bbs-resident.h"
 #include "bbs-shell.h"
+#include "bbs-bank.h"
 #include "bbs-defs.h"
 #include "bbs-wrap.h"
 #include "bbs-telnetd.h"
@@ -66,11 +67,7 @@ extern char telnetd_reject_text[];
 #define TELNET_DONT  254
 
 static unsigned char col_num;
-#ifndef BBS_SERIAL_TRANSPORT
-static unsigned char sd_c[TELNETD_STREAM_CHUNK];
-#else
 static unsigned char sd_c[MAX_STREAM_SPEED];
-#endif
 static unsigned int sd_len;
 /* Ignore trailing CR/LF from the speed-selection line when stream starts. */
 static unsigned char telnetd_stream_rx_grace;
@@ -151,6 +148,20 @@ telnetd_discard_pending_rx(void)
 static void telnetd_feed(const unsigned char *ptr, unsigned int len);
 
 #ifndef BBS_SERIAL_TRANSPORT
+static unsigned int
+telnetd_movie_read_req(void)
+{
+  unsigned int req = (unsigned int)bbs_status.speed;
+
+  if(req < 1u) {
+    req = 1u;
+  }
+  if(req > (unsigned int)MAX_STREAM_SPEED) {
+    req = (unsigned int)MAX_STREAM_SPEED;
+  }
+  return req;
+}
+
 /* uIP can notify this back-end for multiple TCP connections.
    This BBS shell is single-session; keep the active/primary uip_conn here
    so a secondary connection can't stop/steal the global shell state. */
@@ -161,6 +172,9 @@ static unsigned char telnetd_tcp_firstrx;
 static unsigned char telnetd_tcp_tx_pending;
 /* 1: unacked TCP payload came from STATUS_STREAM (sd_c), not the shell ring. */
 static unsigned char telnetd_tcp_stream_unacked;
+#ifndef BBS_SERIAL_TRANSPORT
+static unsigned char transport_flush_depth;
+#endif
 /* strlen(telnetd_reject_text) after optional PETSCII→ASCII in process init. */
 static unsigned int telnetd_reject_len;
 #else
@@ -327,13 +341,29 @@ buf_scr_guard(void)
 }
 
 void
-bbs_transport_buf_reset(void)
+bbs_transport_buf_discard(void)
 {
   buf_scr_guard();
   buf.head = 0u;
   buf.used = 0u;
-  /* size/bufmem left as set by buf_scr_guard (full ring or xfer TX window) */
-  /* No pending TCP acknowledgement window into the drained ring */
+  s.numsent = 0;
+  TELWRAP_LINE_RESET();
+}
+
+void
+bbs_transport_buf_reset(void)
+{
+  unsigned char st;
+
+  buf_scr_guard();
+  st = bbs_status.status;
+  if(st != STATUS_READ && st != STATUS_DIRLIST &&
+      st != STATUS_STREAM && st != STATUS_XFER) {
+    /* Ring uses screen RAM; reset pointers alone leaves stale bytes in the send window. */
+    memset(buf.bufmem, 0x20, buf.size);
+  }
+  buf.head = 0u;
+  buf.used = 0u;
   s.numsent = 0;
 #ifndef BBS_SERIAL_TRANSPORT
   telnetd_tcp_tx_pending = 0u;
@@ -353,13 +383,15 @@ buf_init(void)
 void
 buf_compact(void)
 {
-  if(buf.head == 0) {
+  if(buf.used == 0u) {
+    buf.head = 0u;
     return;
   }
-  if(buf.used > 0) {
-    memmove(buf.bufmem, &buf.bufmem[buf.head], buf.used);
+  if(buf.head == 0u) {
+    return;
   }
-  buf.head = 0;
+  memmove(buf.bufmem, &buf.bufmem[buf.head], buf.used);
+  buf.head = 0u;
 }
 
 /*---------------------------------------------------------------------------*/
@@ -374,7 +406,9 @@ buf_ack_sent(unsigned int n)
   if(buf.used == 0u) {
     buf.head = 0u;
     if(bbs_status.status != STATUS_STREAM &&
-        bbs_status.status != STATUS_XFER) {
+        bbs_status.status != STATUS_XFER &&
+        bbs_status.status != STATUS_READ &&
+        bbs_status.status != STATUS_DIRLIST) {
       log_message("\x93", "");
     }
   }
@@ -479,8 +513,7 @@ void
 telnetd_kick_stream(void)
 {
   if(primary_conn != NULL) {
-    tcpip_poll_tcp(primary_conn);
-    process_run();
+    bbs_transport_poll_send();
   }
 }
 #else /* BBS_SERIAL_TRANSPORT */
@@ -522,14 +555,12 @@ bbs_transport_busy_reject(void)
 }
 
 #ifdef BBS_SERIAL_TRANSPORT
-/* Serial: disk -> outbound ring at $0400 (raw bytes, no PETSCII conversion). */
+/* Serial: disk -> outbound ring at $0400 (same path as f362414). */
 static void
 telnetd_stream_fill_ring(void)
 {
   unsigned int room;
   unsigned int nreq;
-  unsigned int dst0;
-  unsigned int contig;
   int nread;
 
   if(bbs_status.status != STATUS_STREAM) {
@@ -551,15 +582,7 @@ telnetd_stream_fill_ring(void)
     bbs_notice_stream_eof();
     return;
   }
-  dst0 = (buf.head + buf.used) % buf.size;
-  contig = buf.size - dst0;
-  if((unsigned int)nread <= contig) {
-    memcpy(&buf.bufmem[dst0], sd_c, (unsigned int)nread);
-  } else {
-    memcpy(&buf.bufmem[dst0], sd_c, contig);
-    memcpy(buf.bufmem, sd_c + contig, (unsigned int)nread - contig);
-  }
-  buf.used += (unsigned int)nread;
+  buf_append((const char *)sd_c, nread);
 }
 
 static void telnetd_serial_poll_io(void);
@@ -576,16 +599,33 @@ bbs_transport_stream_clear_sent(void)
 }
 
 void
+bbs_transport_poll_send(void)
+{
+#ifdef BBS_SERIAL_TRANSPORT
+  bbs_serial_drain_wire();
+#else
+  unsigned char n;
+
+  if(primary_conn == NULL) {
+    return;
+  }
+  for(n = 0u; n < 32u; ++n) {
+    if(buf.used == 0u && telnetd_tcp_tx_pending == 0u &&
+        telnetd_tcp_stream_unacked == 0u) {
+      break;
+    }
+    tcpip_poll_tcp(primary_conn);
+  }
+#endif
+}
+
+void
 bbs_transport_poll(void)
 {
 #ifdef BBS_SERIAL_TRANSPORT
   telnetd_serial_poll_io();
 #else
-  if(primary_conn != NULL &&
-      (buf.used != 0u || bbs_status.status == STATUS_XFER ||
-       bbs_status.status == STATUS_STREAM)) {
-    tcpip_poll_tcp(primary_conn);
-  }
+  bbs_transport_poll_send();
   process_run();
 #endif
 }
@@ -597,16 +637,29 @@ bbs_transport_flush_outbound(void)
   bbs_serial_flush_outbound();
 #else
   clock_time_t t0;
+  unsigned char rounds;
 
   if(primary_conn == NULL) {
     return;
   }
-  t0 = clock_time();
-  while(buf.used != 0u &&
-        (clock_time_t)(clock_time() - t0) < (clock_time_t)(CLOCK_SECOND * 2u)) {
-    tcpip_poll_tcp(primary_conn);
-    process_run();
+  if(transport_flush_depth != 0u) {
+    bbs_transport_poll_send();
+    return;
   }
+  transport_flush_depth = 1u;
+  t0 = clock_time();
+  rounds = 0u;
+  while((buf.used != 0u || telnetd_tcp_tx_pending != 0u ||
+         telnetd_tcp_stream_unacked != 0u) &&
+        rounds < 128u &&
+        (clock_time_t)(clock_time() - t0) < (clock_time_t)(CLOCK_SECOND * 2u)) {
+    if(primary_conn != NULL) {
+      tcpip_poll_tcp(primary_conn);
+    }
+    process_run();
+    ++rounds;
+  }
+  transport_flush_depth = 0u;
 #endif
 }
 /*---------------------------------------------------------------------------*/
@@ -750,6 +803,11 @@ telnetd_serial_write(const void *vd, unsigned int len)
 static void
 telnetd_serial_tx(void)
 {
+  if(bbs_status.status == STATUS_READ ||
+      bbs_status.status == STATUS_DIRLIST) {
+    return;
+  }
+
   telnetd_stream_fill_ring();
 
   if(buf.used == 0u) {
@@ -1170,7 +1228,7 @@ telnetd_feed(const unsigned char *ptr, unsigned int len)
 
   if(bbs_status.status == STATUS_XFER) {
     while(len > 0u) {
-      bbs_bank_xfer_feed(*ptr++);
+      bbs_bank_feed(*ptr++);
       --len;
     }
     return;
@@ -1425,18 +1483,20 @@ telnetd_appcall(void *ts)
         if(uip_rexmit() != 0) {
           if(s.numsent > 0u) {
             telnetd_tcp_stream_unacked = 1u;
-            uip_send(&sd_c, (int)s.numsent);
+            memcpy(uip_appdata, sd_c, (int)s.numsent);
+            uip_send(uip_appdata, (int)s.numsent);
           }
         } else if(telnetd_tcp_stream_unacked == 0u) {
           int sdr;
           int req;
 
-          req = (int)TELNETD_STREAM_CHUNK;
-          sdr = cbm_read(BBS_MEDIA_CHANNEL, &sd_c, req);
+          req = (int)telnetd_movie_read_req();
+          sdr = cbm_read(BBS_MEDIA_CHANNEL, sd_c, req);
           if(sdr > 0) {
             sd_len = (unsigned int)sdr;
             telnetd_tcp_stream_unacked = 1u;
-            uip_send(&sd_c, sdr);
+            memcpy(uip_appdata, sd_c, sdr);
+            uip_send(uip_appdata, sdr);
             s.numsent = sd_len;
           } else {
             bbs_notice_stream_eof();
@@ -1455,7 +1515,9 @@ telnetd_appcall(void *ts)
             sd_len = first;
           }
           memcpy(uip_appdata, &buf.bufmem[buf.head], sd_len);
-        } else if(telnetd_tcp_tx_pending == 0u && buf.used != 0u) {
+        } else if(telnetd_tcp_tx_pending == 0u && buf.used != 0u &&
+            bbs_status.status != STATUS_READ &&
+            bbs_status.status != STATUS_DIRLIST) {
           unsigned int mss;
           unsigned int first;
 
@@ -1464,6 +1526,9 @@ telnetd_appcall(void *ts)
           sd_len = buf.used;
           if(sd_len > mss) {
             sd_len = mss;
+          }
+          if(sd_len > (unsigned int)TELNETD_STREAM_CHUNK) {
+            sd_len = (unsigned int)TELNETD_STREAM_CHUNK;
           }
           if(sd_len > first) {
             sd_len = first;

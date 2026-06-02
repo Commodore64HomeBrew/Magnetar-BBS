@@ -20,17 +20,17 @@ int read_msg(unsigned short num)
     char sub_num_prefix[BBS_FILE_PATH_BUFLEN];
     char file[12];
 
-    shell_output_str(NULL,PETSCII_LOWER, PETSCII_WHITE);
+    shell_output_str(NULL, PETSCII_LOWER, PETSCII_WHITE);
 
     bbs_fmt_msg_id(file, bbs_status.board_id, num);
-    
     set_prompt();
-    bbs_status.status=STATUS_READ;
+    bbs_status.status = STATUS_READ;
 
     file_path(file, num, sub_num_prefix, sizeof(sub_num_prefix));
-    bbs_banner((unsigned char *)sub_num_prefix, file, "", board.subs_device, bbs_status.wrap);
+    bbs_banner((unsigned char *)sub_num_prefix, file, "", board.subs_device,
+        bbs_status.wrap);
 
-    bbs_status.status=STATUS_LOCK;
+    bbs_status.status = STATUS_LOCK;
 
     return 0;
 }
@@ -51,7 +51,7 @@ PROCESS_THREAD(bbs_read_process, ev, data)
 
   PROCESS_BEGIN();
 
-  shell_output_str(NULL,PETSCII_LOWER, PETSCII_WHITE);
+  shell_output_str(NULL, PETSCII_LOWER, PETSCII_WHITE);
 
   inline_arg = (const char *)data;
   if(inline_arg != NULL && inline_arg[0] != '\0') {
@@ -91,6 +91,10 @@ PROCESS_THREAD(bbs_nextmsg_process, ev, data)
   unsigned short num;
 
   PROCESS_BEGIN();
+#ifdef BBS_SERIAL_TRANSPORT
+  PROCESS_PAUSE();
+#endif
+
   num = bbs_usrstats.current_msg[bbs_status.board_id]+1;
 
   if(num <= bbs_config.msg_id[bbs_status.board_id]){
@@ -111,6 +115,10 @@ PROCESS_THREAD(bbs_prevmsg_process, ev, data)
   unsigned short num;
 
   PROCESS_BEGIN();
+#ifdef BBS_SERIAL_TRANSPORT
+  PROCESS_PAUSE();
+#endif
+
   num = bbs_usrstats.current_msg[bbs_status.board_id]-1;
 
   if(num>0){

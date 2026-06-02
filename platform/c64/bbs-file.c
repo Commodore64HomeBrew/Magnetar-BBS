@@ -7,8 +7,6 @@
 
 #include "contiki.h"
 
-#pragma bss-name("LOWBSS")
-
 #include "bbs-resident.h"
 #include "bbs-shell.h"
 #include "bbs-file.h"
@@ -35,34 +33,21 @@ banner_load_file_payload(unsigned short ptr, unsigned char read_layout)
   int n;
 
   if(read_layout != 0u) {
-    unsigned int pos;
-    unsigned int contig;
-
-    pos = ((unsigned int)buf.head + (unsigned int)buf.used) % buf.size;
     room = buf_free_bytes();
     if(room > 2u) {
       room -= 2u;
     } else {
       room = 0u;
     }
-    contig = buf.size - pos;
-    if(room > contig) {
-      room = contig;
+    dst = &buf.bufmem[ptr];
+    n = cbm_read(10, dst, (unsigned short)room);
+    if(n < 0) {
+      n = 0;
     }
-    if(room > 0u) {
-      dst = &buf.bufmem[pos];
-      n = cbm_read(10, dst, (unsigned short)room);
-      if(n < 0) {
-        n = 0;
-      }
-      if(bbs_status.encoding == 1) {
-        petscii_to_ascii((char *)dst, (unsigned int)n);
-      }
-      buf.used += (unsigned int)n;
-      if(buf.used > buf.size) {
-        buf.used = buf.size;
-      }
+    if(bbs_status.encoding == 1) {
+      petscii_to_ascii((char *)dst, (unsigned int)(n > 0 ? n : 0));
     }
+    buf.used = (unsigned int)ptr + (unsigned int)n;
     if(buf_free_bytes() >= 2u) {
       (void)buf_putc_raw(ISO_cr);
       (void)buf_putc_raw(ISO_nl);
@@ -112,8 +97,8 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
   /* Single cbm_read is capped by free ring space; push pending TX out first. */
   bbs_serial_drain_wire();
 #endif
-  ptr = (unsigned short)(((unsigned int)buf.head + (unsigned int)buf.used) %
-      buf.size);
+  /* After compact head is 0; append offset is buf.used (same as f362414). */
+  ptr = (unsigned short)buf.used;
 
   sprintf(file, "%s:%s%s", filePrefix, szBannerFile, fileSuffix);
 
