@@ -131,7 +131,6 @@
 #define STATUS_READ	9
 #define STATUS_STREAM  10
 #define STATUS_XFER    11
-#define STATUS_LOGIN_RUN 12
 #define STATUS_DIRLIST 13
 
 /* File transfer area (under board.transfer_prefix). */

@@ -25,6 +25,7 @@
 #define bbs_scr_layout_output BBS_SHARED->scr_layout_output
 #define bbs_scr_layout_xfer   BBS_SHARED->scr_layout_xfer
 #define buf_append         BBS_SHARED->buf_append
+#define buf_putc_raw(c)    (BBS_SHARED->buf_putc_raw((unsigned char)(c)))
 #define clock_time()       (BBS_SHARED->clock_time())
 #define set_prompt()       (BBS_SHARED->set_prompt())
 #define update_time()      (BBS_SHARED->update_time())

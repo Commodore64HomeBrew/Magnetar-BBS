@@ -82,6 +82,16 @@ def check_core(map_path, bin_path):
             f"${shared[0]:04X}-${shared[1] - 1:04X}"
         )
 
+    main_hi = 0
+    for name in ("CODE", "RODATA", "DATA", "INIT", "ONCE"):
+        seg = segs.get(name)
+        if seg is not None and seg[1] > main_hi:
+            main_hi = seg[1]
+    if main_hi > shared[0]:
+        raise SystemExit(
+            f"MAIN ends ${main_hi - 1:04X}, intrudes SHARED at ${shared[0]:04X}"
+        )
+
     print(
         f"core OK: SHARED ${shared[0]:04X}-${shared[1] - 1:04X}, "
         f"BSS ${bss[0]:04X}-${bss_end - 1:04X}, "

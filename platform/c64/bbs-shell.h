@@ -367,11 +367,9 @@ enum shell_retval {
  *
  *             The shell sends data as Contiki events to shell command
  *             processes. This variable contains the number of the
- *             Contiki event.
+ *             Contiki event (see bbs-resident.h / BBS_SHARED->shell_ev).
  *
  */
-extern int shell_event_input;
-
 /**
  * \brief      Structure for shell input data
  *

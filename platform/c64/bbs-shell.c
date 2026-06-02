@@ -53,9 +53,9 @@ SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_proc
 
 /* post_synch from telnet would re-enter login/bank PT; defer with process_post.
  * Line buffer lives in LOWBSS ($A1F3..$A27F) to keep BSSHI stack gap. */
-#pragma bss-name (push, "LOWBSS")
+#pragma bss-name(push, "LOWBSS")
 static char shell_deferred_input_line[TELNETD_CONF_LINELEN + 1];
-#pragma bss-name (pop)
+#pragma bss-name(pop)
 static struct shell_input shell_deferred_input_holder;
 
 /*---------------------------------------------------------------------------*/

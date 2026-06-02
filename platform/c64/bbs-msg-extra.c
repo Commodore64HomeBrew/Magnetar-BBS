@@ -10,7 +10,6 @@
 #endif
 
 #include "bbs-bank-macros.h"
-#define buf_putc_raw(c) (BBS_SHARED->buf_putc_raw((unsigned char)(c)))
 
 void
 bbs_msg_info(void)
