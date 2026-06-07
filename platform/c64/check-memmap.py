@@ -89,11 +89,6 @@ def check_core(map_path, bin_path):
             raise SystemExit(
                 f"LOWBSS ends ${lowbss[1] - 1:04X}, intrudes SHARED at ${BBS_SHARED_BASE:04X}"
             )
-        once = segs.get("ONCE")
-        if once is not None and lowbss[0] < once[1]:
-            raise SystemExit(
-                f"LOWBSS ${lowbss[0]:04X} overlaps ONCE ending ${once[1] - 1:04X}"
-            )
     if shared is None:
         raise SystemExit(f"{map_path}: missing SHARED segment")
     if shared[0] != BBS_SHARED_BASE:

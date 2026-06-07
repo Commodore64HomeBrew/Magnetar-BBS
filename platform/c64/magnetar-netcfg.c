@@ -29,10 +29,10 @@ void
 magnetar_netcfg_init(void)
 {
   /* Each octet is a separate byte: { a, b, c, d } not a.b.c.d */
-  static const uint8_t host[] = { 192, 168, 1, 100 };
+  static const uint8_t host[] = { 192, 168, 0, 83 };
   static const uint8_t mask[] = { 255, 255, 255, 0 };
-  static const uint8_t gw[]   = { 192, 168, 1, 254 };
-  static const uint8_t dns[]  = { 192, 168, 1, 245 };
+  static const uint8_t gw[]   = { 192, 168, 0, 1 };
+  static const uint8_t dns[]  = { 192, 168, 0, 1 };
 
   memcpy(config.hostaddr.u8, host, 4);
   memcpy(config.netmask.u8, mask, 4);
