@@ -291,9 +291,9 @@ bbs_bank_load(unsigned char bank_id)
   }
   dst = (unsigned char *)BBS_BANK_BASE;
   total = 0u;
-  while(total < (unsigned int)BBS_BANK_SIZE) {
+  while(total < (unsigned int)BBS_BANK_RAM_SIZE) {
     n = (unsigned int)cbm_read(BBS_BANK_LOAD_CHN, dst + total,
-        (unsigned int)BBS_BANK_SIZE - total);
+        (unsigned int)BBS_BANK_RAM_SIZE - total);
     if(n == 0u) {
       break;
     }

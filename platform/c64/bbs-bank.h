@@ -10,6 +10,11 @@
  */
 
 #define BBS_BANK_BASE       0xB000u
+#define BBS_BANK_LINK_TOP   0xD000u
+#define BBS_BANK_LINK_STACK 0x0200u
+/* Bytes available for linked overlay image (c64-bbs-bank.cfg RAM segment). */
+#define BBS_BANK_RAM_SIZE   (BBS_BANK_LINK_TOP - BBS_BANK_LINK_STACK - BBS_BANK_BASE)
+/* Nominal 8 KiB window; load is capped at BBS_BANK_RAM_SIZE. */
 #define BBS_BANK_SIZE       0x2000u
 #define BBS_BANK_HW_REG     0xDE00u
 #define BBS_BANK_HW_DISABLE 0x80u
