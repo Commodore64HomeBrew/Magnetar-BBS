@@ -10,10 +10,12 @@
 #include "bbs-shell.h"
 #include "bbs-setboard.h"
 #include "bbs-bank-macros.h"
+#include "bbs-bank-msg.h"
 #include "bbs-fmt.h"
 #include <string.h>
 
-void bbs_sub_banner(void)
+void
+bbs_sub_banner(void)
 {
   unsigned char message[32];
   unsigned char file[12];
@@ -25,10 +27,10 @@ void bbs_sub_banner(void)
   shell_output_str(NULL, (char *)message, "");
 }
 
-
 PROCESS(bbs_setboard_process, "board");
-//SHELL_COMMAND(bbs_setboard_command, "s", "s : select board", &bbs_setboard_process);
 SHELL_COMMAND(bbs_setboard_command, "s", "", &bbs_setboard_process);
+SHELL_COMMAND(bbs_nextboard_command, "+", "", &bbs_msg_nop_process);
+SHELL_COMMAND(bbs_prevboard_command, "-", "", &bbs_msg_nop_process);
 
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_setboard_process, ev, data)
@@ -73,44 +75,6 @@ PROCESS_THREAD(bbs_setboard_process, ev, data)
   if(num>0 && num <=board.max_boards){
 
     bbs_status.board_id = num;
-    set_prompt();
-    bbs_sub_banner();
-  }
-
-  PROCESS_END();
-}
-
-/*---------------------------------------------------------------------------*/
-PROCESS(bbs_nextboard_process, "nextboard");
-//SHELL_COMMAND(bbs_nextboard_command, "+", "+ : next board", &bbs_nextboard_process);
-SHELL_COMMAND(bbs_nextboard_command, "+", "", &bbs_nextboard_process);
-
-/*---------------------------------------------------------------------------*/
-PROCESS_THREAD(bbs_nextboard_process, ev, data)
-{
-  PROCESS_BEGIN();
-
-  if(bbs_status.board_id < board.max_boards) {
-    ++bbs_status.board_id;
-    set_prompt();
-    bbs_sub_banner();
-  }
-
-  PROCESS_END();
-}
-
-/*---------------------------------------------------------------------------*/
-PROCESS(bbs_prevboard_process, "prevboard");
-//SHELL_COMMAND(bbs_prevboard_command, "-", "- : prev board", &bbs_prevboard_process);
-SHELL_COMMAND(bbs_prevboard_command, "-", "", &bbs_prevboard_process);
-
-/*---------------------------------------------------------------------------*/
-PROCESS_THREAD(bbs_prevboard_process, ev, data)
-{
-  PROCESS_BEGIN();
-
-  if(bbs_status.board_id > 1u) {
-    --bbs_status.board_id;
     set_prompt();
     bbs_sub_banner();
   }

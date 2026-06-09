@@ -13,6 +13,7 @@
 #include "bbs-defs.h"
 #include "bbs-file.h"
 
+int read_msg(unsigned short num);
 void bbs_read_init(void);
 void bbs_read_deinit(void);
 

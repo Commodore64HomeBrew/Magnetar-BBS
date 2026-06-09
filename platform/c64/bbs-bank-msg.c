@@ -1,8 +1,74 @@
 #include "bbs-bank.h"
+#include "bbs-bank-msg.h"
 #include "bbs-read.h"
 #include "bbs-setboard.h"
 #include "bbs-sys-stats.h"
 #include "bbs-msg-extra.h"
+#include "bbs-bank-macros.h"
+
+PROCESS(bbs_msg_nop_process, "");
+/*---------------------------------------------------------------------------*/
+PROCESS_THREAD(bbs_msg_nop_process, ev, data)
+{
+  PROCESS_BEGIN();
+  (void)ev;
+  (void)data;
+  PROCESS_END();
+}
+
+void
+bbs_msg_set_op(const char *cmd)
+{
+  unsigned short num;
+  unsigned char c;
+
+  if(cmd == NULL || cmd[0] == '\0') {
+    return;
+  }
+  c = (unsigned char)cmd[0];
+  switch(c) {
+  case 'r':
+    num = bbs_usrstats.current_msg[bbs_status.board_id] - 1u;
+    if(num > 0u) {
+      --bbs_usrstats.current_msg[bbs_status.board_id];
+      read_msg(num);
+    }
+    break;
+  case '\r':
+  case '\n':
+    num = (unsigned short)(bbs_usrstats.current_msg[bbs_status.board_id] + 1u);
+    if(num <= bbs_config.msg_id[bbs_status.board_id]) {
+      ++bbs_usrstats.current_msg[bbs_status.board_id];
+      read_msg(num);
+    }
+    break;
+  case '+':
+    if(bbs_status.board_id < board.max_boards) {
+      ++bbs_status.board_id;
+      set_prompt();
+      bbs_sub_banner();
+    }
+    break;
+  case '-':
+    if(bbs_status.board_id > 1u) {
+      --bbs_status.board_id;
+      set_prompt();
+      bbs_sub_banner();
+    }
+    break;
+  case 'x':
+    bbs_msg_system_stats();
+    break;
+  case 'y':
+    bbs_msg_user_stats();
+    break;
+  case 'i':
+    bbs_msg_info();
+    break;
+  default:
+    break;
+  }
+}
 
 unsigned char
 bbs_msg_bank_init(void)

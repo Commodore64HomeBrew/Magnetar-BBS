@@ -11,11 +11,11 @@
 #include "bbs-read.h"
 #include "bbs-file.h"
 #include "bbs-bank-macros.h"
+#include "bbs-bank-msg.h"
 #include "bbs-fmt.h"
-#include <stdio.h>
-#include <string.h>
 
-int read_msg(unsigned short num)
+int
+read_msg(unsigned short num)
 {
     char sub_num_prefix[BBS_FILE_PATH_BUFLEN];
     char file[12];
@@ -35,11 +35,12 @@ int read_msg(unsigned short num)
     return 0;
 }
 
-
-
 /*---------------------------------------------------------------------------*/
 PROCESS(bbs_read_process, "read");
 SHELL_COMMAND(bbs_read_command, "#", "# : select msg", &bbs_read_process);
+SHELL_COMMAND(bbs_prevmsg_command, "r", "", &bbs_msg_nop_process);
+SHELL_COMMAND(bbs_nextmsg1_command, "\x0d", "", &bbs_msg_nop_process);
+SHELL_COMMAND(bbs_nextmsg2_command, "\x0a", "", &bbs_msg_nop_process);
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(bbs_read_process, ev, data)
 {
@@ -66,7 +67,6 @@ PROCESS_THREAD(bbs_read_process, ev, data)
   bbs_fmt_read_select_prompt(message, bbs_config.msg_id[bbs_status.board_id]);
   shell_prompt(message);
 
-
   PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input);
   input = data;
   num = bbs_parse_u16(input->data1);
@@ -80,75 +80,20 @@ PROCESS_THREAD(bbs_read_process, ev, data)
 }
 
 /*---------------------------------------------------------------------------*/
-
-PROCESS(bbs_nextmsg_process, "nextmsg");
-SHELL_COMMAND(bbs_nextmsg1_command, "\x0d", "", &bbs_nextmsg_process);
-SHELL_COMMAND(bbs_nextmsg2_command, "\x0a", "ret : next msg", &bbs_nextmsg_process);
-
-/*---------------------------------------------------------------------------*/
-PROCESS_THREAD(bbs_nextmsg_process, ev, data)
-{
-  unsigned short num;
-
-  PROCESS_BEGIN();
-#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_BANK_BUILD)
-  PROCESS_PAUSE();
-#endif
-
-  num = bbs_usrstats.current_msg[bbs_status.board_id]+1;
-
-  if(num <= bbs_config.msg_id[bbs_status.board_id]){
-    ++bbs_usrstats.current_msg[bbs_status.board_id];
-    
-    read_msg(num);
-  }
-   
-  PROCESS_END();
-}
-
-/*---------------------------------------------------------------------------*/
-PROCESS(bbs_prevmsg_process, "prevmsg");
-SHELL_COMMAND(bbs_prevmsg_command, "r", "r : last msg", &bbs_prevmsg_process);
-/*---------------------------------------------------------------------------*/
-PROCESS_THREAD(bbs_prevmsg_process, ev, data)
-{
-  unsigned short num;
-
-  PROCESS_BEGIN();
-#if defined(BBS_SERIAL_TRANSPORT) && !defined(BBS_BANK_BUILD)
-  PROCESS_PAUSE();
-#endif
-
-  num = bbs_usrstats.current_msg[bbs_status.board_id]-1;
-
-  if(num>0){
-    --bbs_usrstats.current_msg[bbs_status.board_id];
-    
-    read_msg(num);
-  }
-   
-  PROCESS_END();
-
-}
-
-
-
-/*---------------------------------------------------------------------------*/
 void
 bbs_read_init(void)
 {
   shell_register_command(&bbs_read_command);
+  shell_register_command(&bbs_prevmsg_command);
   shell_register_command(&bbs_nextmsg1_command);
   shell_register_command(&bbs_nextmsg2_command);
-  shell_register_command(&bbs_prevmsg_command);
-
 }
 
 void
 bbs_read_deinit(void)
 {
   shell_unregister_command(&bbs_read_command);
+  shell_unregister_command(&bbs_prevmsg_command);
   shell_unregister_command(&bbs_nextmsg1_command);
   shell_unregister_command(&bbs_nextmsg2_command);
-  shell_unregister_command(&bbs_prevmsg_command);
 }

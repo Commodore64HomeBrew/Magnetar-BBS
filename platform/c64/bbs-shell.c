@@ -933,6 +933,27 @@ bbs_bank_uses_set_op(unsigned char bank_id)
 }
 
 static unsigned char
+bbs_msg_uses_set_op(const char *cmd, int len)
+{
+  if(len != 1) {
+    return 0u;
+  }
+  switch(cmd[0]) {
+  case 'r':
+  case '+':
+  case '-':
+  case 'x':
+  case 'y':
+  case 'i':
+  case '\r':
+  case '\n':
+    return 1u;
+  default:
+    return 0u;
+  }
+}
+
+static unsigned char
 bbs_command_bank_id(const char *cmd, int len)
 {
   if(len == 1) {
@@ -1075,7 +1096,9 @@ start_command(char *commandline, struct shell_command *child)
     c->child = child;
     /*    printf("shell: start_command starting '%s'\n", c->process->name);*/
     /* Start a new process for the command. */
-    if(bbs_bank_uses_set_op(bbs_command_bank_id(commandline, command_len)) != 0u) {
+    if(bbs_bank_uses_set_op(bbs_command_bank_id(commandline, command_len)) != 0u ||
+       (bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_MSG &&
+        bbs_msg_uses_set_op(commandline, command_len) != 0u)) {
       bbs_bank_set_op(commandline);
       command_kill(child);
       c = NULL;
