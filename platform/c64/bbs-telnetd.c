@@ -980,6 +980,12 @@ bbs_serial_flush_outbound(void)
     }
   }
 }
+#else /* !BBS_SERIAL_TRANSPORT */
+void
+bbs_serial_flush_outbound(void)
+{
+  bbs_transport_flush_outbound();
+}
 #endif /* BBS_SERIAL_TRANSPORT */
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(telnetd_process, ev, data)

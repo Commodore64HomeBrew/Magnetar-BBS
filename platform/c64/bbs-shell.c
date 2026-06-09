@@ -481,9 +481,8 @@ login_stats_continue(void)
 {
   bbs_record_last_caller();
   telnetd_discard_pending_rx();
-  if(bbs_bank_load(BBS_BANK_ID_UI) != 0u &&
-     BBS_BANK_HDR->run_sys_stats != NULL) {
-    BBS_BANK_HDR->run_sys_stats();
+  if(bbs_bank_load(BBS_BANK_ID_MSG) != 0u) {
+    bbs_bank_run_sys_stats();
   } else {
     shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
   }
@@ -928,7 +927,7 @@ bbs_show_menu(void)
 }
 
 static unsigned char
-bbs_xfer_bank_command(unsigned char bank_id)
+bbs_bank_uses_set_op(unsigned char bank_id)
 {
   return (bank_id == BBS_BANK_ID_XFER || bank_id == BBS_BANK_ID_XMODEM) ? 1u : 0u;
 }
@@ -948,7 +947,6 @@ bbs_command_bank_id(const char *cmd, int len)
     case 'x':
     case 'y':
     case 'i':
-      return BBS_BANK_ID_UI;
     case '#':
     case 'r':
     case 's':
@@ -978,8 +976,6 @@ bbs_bank_unavailable_msg(unsigned char bank_id)
     return "\n\rpost bank unavailable\n\r";
   case BBS_BANK_ID_MSG:
     return "\n\rmessage bank unavailable\n\r";
-  case BBS_BANK_ID_UI:
-    return "\n\rstats bank unavailable\n\r";
   case BBS_BANK_ID_XMODEM:
     return "\n\rdownload/upload bank unavailable\n\r";
   default:
@@ -997,7 +993,7 @@ bbs_bank_route_command(const char *cmd, int len)
     return 1u;
   }
 
-  if(bbs_xfer_bank_command(bank_id) != 0u && bbs_status.status == STATUS_XFER) {
+  if(bbs_bank_uses_set_op(bank_id) != 0u && bbs_status.status == STATUS_XFER) {
     shell_output_str(NULL, "\n\rtransfer active\n\r", "");
     return 0u;
   }
@@ -1014,17 +1010,6 @@ bbs_bank_route_command(const char *cmd, int len)
     }
   }
   return 1u;
-}
-
-static unsigned char
-bbs_bank_prepare_command(const char *cmd)
-{
-  if(bbs_bank_active() != 0u) {
-    bbs_bank_set_op(cmd);
-    return 1u;
-  }
-  (void)cmd;
-  return 0u;
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1090,18 +1075,8 @@ start_command(char *commandline, struct shell_command *child)
     c->child = child;
     /*    printf("shell: start_command starting '%s'\n", c->process->name);*/
     /* Start a new process for the command. */
-    if(bbs_xfer_bank_command(bbs_command_bank_id(commandline, command_len)) != 0u) {
-      if(bbs_bank_prepare_command(commandline) == 0u) {
-        command_kill(child);
-        return NULL;
-      }
-      command_kill(child);
-      c = NULL;
-    } else if(bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_UI) {
-      if(bbs_bank_prepare_command(commandline) == 0u) {
-        command_kill(child);
-        return NULL;
-      }
+    if(bbs_bank_uses_set_op(bbs_command_bank_id(commandline, command_len)) != 0u) {
+      bbs_bank_set_op(commandline);
       command_kill(child);
       c = NULL;
     } else {
@@ -1372,7 +1347,7 @@ shell_init(void)
   shell_register_command(&settime_command);
   shell_register_command(&quit_command);
   shell_register_command(&movie_command);
-  bbs_shared_init();
+  bbs_api_init();
 
   /* local console eye candy */
   clrscr();

@@ -4,21 +4,20 @@
 import re
 import sys
 
-# Core (c64-bbs-core.cfg, bbs-bank.h, bbs-defs.h)
 CORE_HIMEM = 0xB000
 CORE_STACK = 0x0400
 CORE_MIN_GAP = 256
+BBS_API_BASE = 0xA210
 BBS_SHARED_BASE = 0xA280
-BBS_SHARED_SIZE = 0x368
+BBS_SHARED_SIZE = 0x0320
 
-# Banks (c64-bbs-bank.cfg)
 BBS_BANK_BASE = 0xB000
 BANK_TOP = 0xD000
 BANK_STACK = 0x0200
 BANK_RAM_SIZE = BANK_TOP - BANK_STACK - BBS_BANK_BASE
 BANK_MIN_STACK_GAP = 48
+BANK_HDR_SIZE = 0x15
 
-# Screen RAM (bbs-defs.h) — runtime only, not linker segments
 SCR_BASE = 0x0400
 SCR_LAST = 0x07E7
 XMODEM_RBUF_SIZE = 132
@@ -58,7 +57,9 @@ def check_screen_layout():
 def check_core(map_path, bin_path):
     check_screen_layout()
 
-    segs = parse_segments(map_path, ["BSS", "SHARED", "LOWBSS", "CODE", "DATA", "INIT", "ONCE"])
+    segs = parse_segments(
+        map_path, ["BSS", "SHARED", "LOWBSS", "CODE", "DATA", "INIT", "ONCE", "RESAPI"]
+    )
     bss = segs.get("BSS")
     if bss is None:
         raise SystemExit(f"{map_path}: missing BSS segment")
@@ -74,8 +75,6 @@ def check_core(map_path, bin_path):
             f"core BSS/stack gap {gap} B < minimum {CORE_MIN_GAP} B "
             f"(BSS ends ${bss_end - 1:04X}, stack ${stack_lo:04X})"
         )
-    if bss_end > CORE_HIMEM:
-        raise SystemExit(f"core BSS ends ${bss_end - 1:04X}, above bank base ${CORE_HIMEM:04X}")
 
     if bss[0] != BBS_SHARED_BASE + BBS_SHARED_SIZE:
         raise SystemExit(
@@ -84,11 +83,21 @@ def check_core(map_path, bin_path):
 
     shared = segs.get("SHARED")
     lowbss = segs.get("LOWBSS")
-    if lowbss is not None:
-        if lowbss[1] > BBS_SHARED_BASE:
-            raise SystemExit(
-                f"LOWBSS ends ${lowbss[1] - 1:04X}, intrudes SHARED at ${BBS_SHARED_BASE:04X}"
-            )
+    resapi = segs.get("RESAPI")
+    if resapi is None:
+        raise SystemExit(f"{map_path}: missing RESAPI segment")
+    if resapi[0] != BBS_API_BASE:
+        raise SystemExit(
+            f"RESAPI at ${resapi[0]:04X}, expected ${BBS_API_BASE:04X}"
+        )
+    if resapi[1] > BBS_SHARED_BASE:
+        raise SystemExit(
+            f"RESAPI ends ${resapi[1] - 1:04X}, intrudes SHARED at ${BBS_SHARED_BASE:04X}"
+        )
+    if lowbss is not None and lowbss[1] > BBS_API_BASE:
+        raise SystemExit(
+            f"LOWBSS ends ${lowbss[1] - 1:04X}, intrudes RESAPI at ${BBS_API_BASE:04X}"
+        )
     if shared is None:
         raise SystemExit(f"{map_path}: missing SHARED segment")
     if shared[0] != BBS_SHARED_BASE:
@@ -97,12 +106,7 @@ def check_core(map_path, bin_path):
         )
     if shared[2] != BBS_SHARED_SIZE:
         raise SystemExit(
-            f"SHARED size {shared[2]} B, expected {BBS_SHARED_SIZE} B (bbs-shared-reserve.S)"
-        )
-    if bss[0] < shared[1] and bss_end > shared[0]:
-        raise SystemExit(
-            f"BSS ${bss[0]:04X}-${bss_end - 1:04X} overlaps SHARED "
-            f"${shared[0]:04X}-${shared[1] - 1:04X}"
+            f"SHARED size {shared[2]} B, expected {BBS_SHARED_SIZE} B"
         )
 
     main_hi = 0
@@ -110,23 +114,15 @@ def check_core(map_path, bin_path):
         seg = segs.get(name)
         if seg is not None and seg[1] > main_hi:
             main_hi = seg[1]
-    if main_hi > shared[0]:
+    if main_hi > BBS_API_BASE:
         raise SystemExit(
-            f"MAIN ends ${main_hi - 1:04X}, intrudes SHARED at ${shared[0]:04X}"
+            f"MAIN ends ${main_hi - 1:04X}, intrudes RESAPI at ${BBS_API_BASE:04X}"
         )
 
-    once = segs.get("ONCE")
-    once_end = once[1] if once else 0
-    lowbss_note = ""
-    if lowbss is not None:
-        lowbss_note = f", LOWBSS ${lowbss[0]:04X}-${lowbss[1] - 1:04X}"
-    elif once_end > 0 and once_end < BBS_SHARED_BASE:
-        lowbss_note = f", gap ONCE..SHARED {BBS_SHARED_BASE - once_end} B"
-
     print(
-        f"core OK: SHARED ${shared[0]:04X}-${shared[1] - 1:04X}, "
-        f"BSS ${bss[0]:04X}-${bss_end - 1:04X}, "
-        f"stack gap {gap} B, bank base ${CORE_HIMEM:04X}{lowbss_note}"
+        f"core OK: RESAPI ${resapi[0]:04X}-${resapi[1] - 1:04X}, "
+        f"SHARED ${shared[0]:04X}-${shared[1] - 1:04X}, "
+        f"BSS ${bss[0]:04X}-${bss_end - 1:04X}, stack gap {gap} B"
     )
 
 
@@ -149,10 +145,15 @@ def check_bank(map_path, bin_path):
             f"(need {BANK_MIN_STACK_GAP} B)"
         )
     bankhdr = segs.get("BANKHDR")
-    if bankhdr is not None and bankhdr[0] != BBS_BANK_BASE:
-        raise SystemExit(
-            f"{map_path}: BANKHDR at ${bankhdr[0]:04X}, expected ${BBS_BANK_BASE:04X}"
-        )
+    if bankhdr is not None:
+        if bankhdr[0] != BBS_BANK_BASE:
+            raise SystemExit(
+                f"{map_path}: BANKHDR at ${bankhdr[0]:04X}, expected ${BBS_BANK_BASE:04X}"
+            )
+        if bankhdr[2] < BANK_HDR_SIZE:
+            raise SystemExit(
+                f"{map_path}: BANKHDR size {bankhdr[2]} B < {BANK_HDR_SIZE} B"
+            )
     try:
         with open(bin_path, "rb") as f:
             bin_sz = len(f.read())
@@ -160,8 +161,7 @@ def check_bank(map_path, bin_path):
         raise SystemExit(f"{bin_path}: {e}") from e
     if bin_sz > BANK_RAM_SIZE:
         raise SystemExit(
-            f"{bin_path}: {bin_sz} B exceeds bank RAM {BANK_RAM_SIZE} B "
-            f"(${BBS_BANK_BASE:04X}-${stack_lo - 1:04X})"
+            f"{bin_path}: {bin_sz} B exceeds bank RAM {BANK_RAM_SIZE} B"
         )
     print(
         f"bank OK: linked to ${hi - 1:04X}, stack gap {stack_gap} B, "

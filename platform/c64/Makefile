@@ -26,7 +26,7 @@ else
 DEFINES := WITH_LOGGING,WITH_PFS,MAGNETAR_BBS,TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,STATIC_DRIVER=c64_swlink_ser
 endif
 CFLAGS += -DCONNECTIONS=1 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=128 -DUIP_CONF_TCP_MSS=64
-PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-fmt.c bbs-shared-reserve.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-fmt.c bbs-shared-reserve.S bbs-core-api.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
 magnetar-serial: banks
 ifeq ($(BBS_SERIAL_FLAVOR),2)
 PROJECT_SOURCEFILES += vendor/up2400/c64-up2400.S
@@ -38,19 +38,19 @@ contiki-bbs: banks
 CONTIKI_NET_MINIMAL := 1
 BBS_HEADLESS := 1
 CONTIKI_BBS_MINIMAL := 1
-PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-fmt.c bbs-shared-reserve.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-fmt.c bbs-shared-reserve.S bbs-core-api.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
 endif
 
 all: $(CONTIKI_PROJECT) banks memcheck
 
 # Banks: bbs-bankN.bin (raw images at $B000), not legacy .mod relocatables.
-banks: bbs-bank1.bin bbs-bank2.bin bbs-bank3.bin bbs-bank4.bin bbs-bank5.bin
+banks: bbs-bank1.bin bbs-bank2.bin bbs-bank3.bin bbs-bank5.bin
 
 .PHONY: memcheck
 memcheck: $(CONTIKI_PROJECT).c64 banks
 	@echo "  MEMCHECK  core"
 	@python3 $(CURDIR)/check-memmap.py core contiki-c64.map $(CONTIKI_PROJECT).c64
-	@for n in 1 2 3 4 5; do \
+	@set -e; for n in 1 2 3 5; do \
 	  echo "  MEMCHECK  bank$$n"; \
 	  python3 $(CURDIR)/check-memmap.py bank bbs-bank$$n.prg.map bbs-bank$$n.bin; \
 	done
@@ -144,23 +144,11 @@ $(OBJECTDIR)/bbs-transfer-bank.o: bbs-transfer.c | $(OBJECTDIR)
 	@echo "  CC        $<"
 	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -Os -o $@ $<
 
-$(OBJECTDIR)/bbs-bank-xfer.o: bbs-bank-xfer.c | $(OBJECTDIR)
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -o $@ $<
-
 $(OBJECTDIR)/bbs-xfer-xmodem-bank.o: bbs-xfer-xmodem.c | $(OBJECTDIR)
 	@echo "  CC        $<"
 	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -Os -o $@ $<
 
-$(OBJECTDIR)/bbs-bank-xmodem.o: bbs-bank-xmodem.c | $(OBJECTDIR)
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -o $@ $<
-
-$(OBJECTDIR)/bbs-bank-hdr-xmodem.o: bbs-bank-hdr-xmodem.S | $(OBJECTDIR)
-	@echo "  AS        $<"
-	@$(AS) $(ASFLAGS) -o $@ $<
-
-bbs-bank5.prg: $(OBJECTDIR)/bbs-bank-hdr-xmodem.o $(OBJECTDIR)/bbs-bank-xmodem.o $(OBJECTDIR)/bbs-xfer-xmodem-bank.o $(OBJECTDIR)/bbs-xmodem-bank.o $(BANK_CC65_LIB)
+bbs-bank5.prg: $(OBJECTDIR)/bbs-bank-hdr-xmodem.o $(OBJECTDIR)/bbs-xfer-xmodem-bank.o $(OBJECTDIR)/bbs-xmodem-bank.o $(BANK_CC65_LIB)
 	@echo "  LD       " $@
 	$(Q)$(LD) -o $@ -C $(BANK_CFG) -m $@.map $(filter-out $(BANK_CC65_LIB),$^) $(BANK_CC65_LIB)
 
@@ -170,30 +158,33 @@ $(OBJECTDIR)/bbs-xmodem-bank.o: bbs-xmodem.S | $(OBJECTDIR)
 	@echo "  AS        $<"
 	@$(AS) $(ASFLAGS) -I. -o $@ $<
 
+$(OBJECTDIR)/bbs-bank-hdr-msg.o: bbs-bank-hdr-msg.S | $(OBJECTDIR)
+	@echo "  AS        $<"
+	@$(AS) $(ASFLAGS) -I. -o $@ $<
+
+$(OBJECTDIR)/bbs-core-api.o: bbs-core-api.S | $(OBJECTDIR)
+	@echo "  AS        $<"
+	@$(AS) $(ASFLAGS) -I. -o $@ $<
+
 $(OBJECTDIR)/bbs-bank-hdr-xfer.o: bbs-bank-hdr-xfer.S | $(OBJECTDIR)
 	@echo "  AS        $<"
-	@$(AS) $(ASFLAGS) -o $@ $<
+	@$(AS) $(ASFLAGS) -I. -o $@ $<
 
 $(OBJECTDIR)/bbs-bank-hdr-post.o: bbs-bank-hdr-post.S | $(OBJECTDIR)
 	@echo "  AS        $<"
-	@$(AS) $(ASFLAGS) -o $@ $<
+	@$(AS) $(ASFLAGS) -I. -o $@ $<
 
-$(OBJECTDIR)/bbs-bank-hdr-msg.o: bbs-bank-hdr-msg.S | $(OBJECTDIR)
+$(OBJECTDIR)/bbs-bank-hdr-xmodem.o: bbs-bank-hdr-xmodem.S | $(OBJECTDIR)
 	@echo "  AS        $<"
-	@$(AS) $(ASFLAGS) -o $@ $<
+	@$(AS) $(ASFLAGS) -I. -o $@ $<
 
-$(OBJECTDIR)/bbs-bank-hdr-ui.o: bbs-bank-hdr-ui.S | $(OBJECTDIR)
-	@echo "  AS        $<"
-	@$(AS) $(ASFLAGS) -o $@ $<
-
-bbs-bank1.prg: $(OBJECTDIR)/bbs-bank-hdr-xfer.o $(OBJECTDIR)/bbs-bank-xfer.o $(OBJECTDIR)/bbs-transfer-bank.o $(BANK_CC65_LIB)
+bbs-bank1.prg: $(OBJECTDIR)/bbs-bank-hdr-xfer.o $(OBJECTDIR)/bbs-transfer-bank.o $(BANK_CC65_LIB)
 	@echo "  LD       " $@
 	$(Q)$(LD) -o $@ -C $(BANK_CFG) -m $@.map $(filter-out $(BANK_CC65_LIB),$^) $(BANK_CC65_LIB)
 
 bbs-bank1.bin: bbs-bank1.prg
 bbs-bank2.bin: bbs-bank2.prg
 bbs-bank3.bin: bbs-bank3.prg
-bbs-bank4.bin: bbs-bank4.prg
 
 %.bin: %.prg
 	@echo "  BIN      " $@
@@ -216,10 +207,6 @@ $(OBJECTDIR)/bbs-fmt-bank.o: bbs-fmt.c | $(OBJECTDIR)
 	@echo "  CC        $<"
 	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -Os -o $@ $<
 
-$(OBJECTDIR)/bbs-bank-post.o: bbs-bank-post.c | $(OBJECTDIR)
-	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -o $@ $<
-
 $(OBJECTDIR)/bbs-bank-msg.o: bbs-bank-msg.c | $(OBJECTDIR)
 	@echo "  CC        $<"
 	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -o $@ $<
@@ -228,18 +215,15 @@ $(OBJECTDIR)/bbs-msg-extra-bank.o: bbs-msg-extra.c | $(OBJECTDIR)
 	@echo "  CC        $<"
 	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -Os -o $@ $<
 
-bbs-bank2.prg: $(OBJECTDIR)/bbs-bank-hdr-post.o $(OBJECTDIR)/bbs-bank-post.o $(OBJECTDIR)/bbs-post-bank.o $(CC65_LIB)
-	@echo "  LD       " $@
-	$(Q)$(LD) -o $@ -C $(BANK_CFG) -m $@.map $^
-
-bbs-bank3.prg: $(OBJECTDIR)/bbs-bank-hdr-msg.o $(OBJECTDIR)/bbs-bank-msg.o $(OBJECTDIR)/bbs-read-bank.o $(OBJECTDIR)/bbs-setboard-bank.o $(OBJECTDIR)/bbs-fmt-bank.o $(CC65_LIB)
-	@echo "  LD       " $@
-	$(Q)$(LD) -o $@ -C $(BANK_CFG) -m $@.map $^
-
-$(OBJECTDIR)/bbs-bank-ui.o: bbs-bank-ui.c | $(OBJECTDIR)
+$(OBJECTDIR)/bbs-sys-stats-bank.o: bbs-sys-stats.c | $(OBJECTDIR)
 	@echo "  CC        $<"
-	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -o $@ $<
+	@$(CC) -c $(filter-out --static-locals,$(CFLAGS)) -DBBS_BANK_BUILD -Os -o $@ $<
 
-bbs-bank4.prg: $(OBJECTDIR)/bbs-bank-hdr-ui.o $(OBJECTDIR)/bbs-bank-ui.o $(OBJECTDIR)/bbs-msg-extra-bank.o $(OBJECTDIR)/bbs-fmt-bank.o $(CC65_LIB)
+bbs-bank2.prg: $(OBJECTDIR)/bbs-bank-hdr-post.o $(OBJECTDIR)/bbs-post-bank.o $(CC65_LIB)
 	@echo "  LD       " $@
 	$(Q)$(LD) -o $@ -C $(BANK_CFG) -m $@.map $^
+
+bbs-bank3.prg: $(OBJECTDIR)/bbs-bank-hdr-msg.o $(OBJECTDIR)/bbs-bank-msg.o $(OBJECTDIR)/bbs-read-bank.o $(OBJECTDIR)/bbs-setboard-bank.o $(OBJECTDIR)/bbs-sys-stats-bank.o $(OBJECTDIR)/bbs-msg-extra-bank.o $(OBJECTDIR)/bbs-fmt-bank.o $(CC65_LIB)
+	@echo "  LD       " $@
+	$(Q)$(LD) -o $@ -C $(BANK_CFG) -m $@.map $^
+
