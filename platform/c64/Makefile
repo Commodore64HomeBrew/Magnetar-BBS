@@ -26,7 +26,7 @@ else
 DEFINES := WITH_LOGGING,WITH_PFS,MAGNETAR_BBS,TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,STATIC_DRIVER=c64_swlink_ser
 endif
 CFLAGS += -DCONNECTIONS=1 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=128 -DUIP_CONF_TCP_MSS=64
-PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-fmt.c bbs-shared-reserve.S bbs-core-api.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-shared-reserve.S bbs-core-api.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
 magnetar-serial: banks
 ifeq ($(BBS_SERIAL_FLAVOR),2)
 PROJECT_SOURCEFILES += vendor/up2400/c64-up2400.S
@@ -38,7 +38,7 @@ contiki-bbs: banks
 CONTIKI_NET_MINIMAL := 1
 BBS_HEADLESS := 1
 CONTIKI_BBS_MINIMAL := 1
-PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-fmt.c bbs-shared-reserve.S bbs-core-api.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
+PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-shared-reserve.S bbs-core-api.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
 endif
 
 all: $(CONTIKI_PROJECT) banks memcheck

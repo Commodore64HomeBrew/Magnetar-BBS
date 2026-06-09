@@ -16,7 +16,6 @@
 #include "bbs-shell.h"
 #include "bbs-encodings.h"
 #include "bbs-bank.h"
-#include "bbs-transfer.h"
 #include "bbs-file.h"
 #include "bbs-telnetd.h"
 #include <string.h>
@@ -41,7 +40,8 @@ unsigned short set_step=0;
 
 static unsigned char bbs_command_bank_id(const char *cmd, int len);
 static unsigned char bbs_bank_route_command(const char *cmd, int len);
-static unsigned char bbs_xfer_bank_command(unsigned char bank_id);
+static unsigned char bbs_ensure_msg_bank(void);
+static void shell_do_quit(void);
 
 /*---------------------------------------------------------------------------*/
 PROCESS(shell_process, "Shell");
@@ -59,13 +59,11 @@ static char shell_deferred_input_line[TELNETD_CONF_LINELEN + 1];
 static struct shell_input shell_deferred_input_holder;
 
 /*---------------------------------------------------------------------------*/
-PROCESS(version_process, "version");
-SHELL_COMMAND(version_command, "v", "v : version", &version_process);
+SHELL_COMMAND(version_command, "v", "v : version", &shell_process);
 
 SHELL_COMMAND(help_command, "?", "? : help", &shell_process);
 
-PROCESS(shell_exit_process, "exit");
-SHELL_COMMAND(quit_command, "q", "q : quit", &shell_exit_process);
+SHELL_COMMAND(quit_command, "q", "q : quit", &shell_process);
 
 PROCESS(settime_process, "settime");
 SHELL_COMMAND(settime_command, "t", "t : time", &settime_process);
@@ -440,10 +438,8 @@ void bbs_login()
 	//Increment the dialy calls total:
 	++bbs_sysstats.daily_calls[bbs_sysstats.day_ptr];
 
-	if(bbs_bank_id_active() != BBS_BANK_ID_MSG) {
-		if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
-			shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
-		}
+	if(bbs_ensure_msg_bank() == 0u) {
+		shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
 	}
 
 	//Display the Centronian logo and system stats:
@@ -476,12 +472,21 @@ void bbs_login()
 }
 
 
+static unsigned char
+bbs_ensure_msg_bank(void)
+{
+  if(bbs_bank_id_active() == BBS_BANK_ID_MSG) {
+    return 1u;
+  }
+  return bbs_bank_load(BBS_BANK_ID_MSG);
+}
+
 static void
 login_stats_continue(void)
 {
   bbs_record_last_caller();
   telnetd_discard_pending_rx();
-  if(bbs_bank_load(BBS_BANK_ID_MSG) != 0u) {
+  if(bbs_ensure_msg_bank() != 0u) {
     bbs_bank_run_sys_stats();
   } else {
     shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
@@ -721,18 +726,6 @@ PROCESS_THREAD(bbs_timer_process, ev, data)
 }
 
 /*---------------------------------------------------------------------------*/
-PROCESS_THREAD(version_process, ev, data)
-{
-  PROCESS_BEGIN();
-#ifdef BBS_SERIAL_TRANSPORT
-  PROCESS_PAUSE();
-#endif
-
-    bbs_splash(BBS_MODE_SHELL);
-
-  PROCESS_END();
-}
-/*---------------------------------------------------------------------------*/
 PROCESS_THREAD(movie_process, ev, data)
 {
   unsigned short num;
@@ -811,43 +804,35 @@ PROCESS_THREAD(movie_process, ev, data)
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
-PROCESS_THREAD(shell_exit_process, ev, data)
+static void
+shell_do_quit(void)
 {
-
   unsigned char file[25];
   unsigned char prefix[20];
   unsigned char enc0;
 
-  PROCESS_BEGIN();
-	enc0 = (bbs_status.encoding == 0);
-	if(enc0) {
-		shell_output_str(NULL, "\x8e", "");
-	}
+  enc0 = (unsigned char)(bbs_status.encoding == 0);
+  if(enc0 != 0u) {
+    shell_output_str(NULL, "\x8e", "");
+  }
 
-	if(enc0 && bbs_status.width > 22) {
-		sprintf(prefix,"%sq/4/", board.sys_prefix);
+  if(enc0 != 0u && bbs_status.width > 22) {
+    sprintf(prefix, "%sq/4/", board.sys_prefix);
+    srand(clock_seconds());
+    sprintf(file, "%d", (int)((rand() % 64) + 1));
+    bbs_banner(prefix, file, "", board.sys_device, 0);
+  } else {
+    bbs_banner(board.sys_prefix, (unsigned char *)BBS_BANNER_LOGOUT,
+        bbs_status.encoding_suffix, board.sys_device, 0);
+  }
 
-		srand(clock_seconds());
-
-		sprintf(file,"%d", ((rand() % 64)+1));
-
-		bbs_banner(prefix, file, "", board.sys_device,0);
-
-	}
-	else{
-		bbs_banner(board.sys_prefix, (unsigned char *)BBS_BANNER_LOGOUT,
-		    bbs_status.encoding_suffix, board.sys_device, 0);
-
-	}
-	
-	log_message("\x05logout: ", bbs_user.user_name);
-
-	PROCESS_PAUSE();
-
-	shell_stop();
-
-	PROCESS_END();
+  log_message("\x05logout: ", bbs_user.user_name);
+#ifndef BBS_SERIAL_TRANSPORT
+  bbs_transport_flush_outbound();
+#endif
+  shell_stop();
 }
+
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(settime_process, ev, data)
 {
@@ -1075,6 +1060,18 @@ start_command(char *commandline, struct shell_command *child)
 
   if(command_len == 1 && commandline[0] == '?') {
     bbs_show_menu();
+    command_kill(child);
+    return NULL;
+  }
+
+  if(command_len == 1 && commandline[0] == 'v') {
+    bbs_splash(BBS_MODE_SHELL);
+    command_kill(child);
+    return NULL;
+  }
+
+  if(command_len == 1 && commandline[0] == 'q') {
+    shell_do_quit();
     command_kill(child);
     return NULL;
   }
