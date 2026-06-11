@@ -124,9 +124,7 @@ bbs_xmodem_putc(unsigned char c)
   s->outc = (char)c;
   (void)buf_append(&s->outc, 1);
 #ifdef BBS_SERIAL_TRANSPORT
-  if(bbs_serial_flush_outbound != NULL) {
-    bbs_serial_flush_outbound();
-  }
+  bbs_serial_flush_outbound();
 #endif
   t0 = clock_time();
   while(buf.used != 0u &&
