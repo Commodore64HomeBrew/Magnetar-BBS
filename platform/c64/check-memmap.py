@@ -9,7 +9,8 @@ CORE_STACK = 0x0400
 CORE_MIN_GAP = 256
 BBS_API_BASE = 0xA210
 BBS_SHARED_BASE = 0xA280
-BBS_SHARED_SIZE = 0x0320
+BBS_SHARED_SIZE = 0x0350
+BBS_SHARED_STRUCT_MIN = 0x0347  # sizeof(bbs_shared_t); keep BBS_SHARED_SIZE >= this
 
 BBS_BANK_BASE = 0xB000
 BANK_TOP = 0xD000
@@ -107,6 +108,11 @@ def check_core(map_path, bin_path):
     if shared[2] != BBS_SHARED_SIZE:
         raise SystemExit(
             f"SHARED size {shared[2]} B, expected {BBS_SHARED_SIZE} B"
+        )
+    if BBS_SHARED_SIZE < BBS_SHARED_STRUCT_MIN:
+        raise SystemExit(
+            f"BBS_SHARED_SIZE {BBS_SHARED_SIZE} B < bbs_shared_t minimum "
+            f"{BBS_SHARED_STRUCT_MIN} B"
         )
 
     main_hi = 0

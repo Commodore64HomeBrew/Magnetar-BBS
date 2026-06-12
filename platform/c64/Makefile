@@ -48,6 +48,8 @@ banks: bbs-bank1.bin bbs-bank2.bin bbs-bank3.bin bbs-bank5.bin
 
 .PHONY: memcheck
 memcheck: $(CONTIKI_PROJECT).c64 banks
+	@echo "  MEMCHECK  shared struct"
+	@$(CC) -c $(CFLAGS) -o $(OBJECTDIR)/bbs-shared-size.o bbs-shared-size.c
 	@echo "  MEMCHECK  core"
 	@python3 $(CURDIR)/check-memmap.py core contiki-c64.map $(CONTIKI_PROJECT).c64
 	@set -e; for n in 1 2 3 5; do \
