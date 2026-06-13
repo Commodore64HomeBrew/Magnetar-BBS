@@ -52,7 +52,7 @@ SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_proc
 
 /* Defer disk/bank work out of telnetd_appcall and deep login stack frames. */
 static unsigned char bbs_login_defer_flags;
-#define BBS_LOGIN_DEFER_HOME    0x01u /* bank 3 + login banner after encoding choice */
+#define BBS_LOGIN_DEFER_HOME    0x01u /* login banner after encoding choice (no bank load) */
 #define BBS_LOGIN_DEFER_STATS   0x02u
 #define BBS_LOGIN_DEFER_FINISH  0x04u
 
@@ -496,9 +496,7 @@ bbs_login_defer_stats_screen(void)
 static void
 bbs_login_begin_handle(void)
 {
-  if(bbs_bank_ensure_msg() == 0u) {
-    log_message("\x96", "msg bank");
-  }
+  bbs_transport_buf_discard();
   bbs_banner(board.sys_prefix, BBS_BANNER_LOGIN, bbs_status.encoding_suffix,
       board.sys_device, 0);
   shell_output_str(NULL, "\r\nnew users enter a new handle.", "");
