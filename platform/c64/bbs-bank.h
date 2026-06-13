@@ -7,9 +7,9 @@
  * Bank overlays at $B000 (8 KiB). Core loads .bin via bbs_bank_load().
  * Banks call core through fixed RESAPI stubs at $A210 (bbs-api.h).
  *
- * Policy: bank 3 loads on first session need (login defer) and after each session
- * (shell_stop). Other banks replace the overlay on demand via bbs_bank_load();
- * bbs_bank_home() restores bank 3. Do not load at boot (IEC/autostart stack).
+ * Policy: bank 3 loads after encoding choice (login defer), at post-login stats,
+ * and after each session (shell_stop). Other banks replace the overlay on demand;
+ * bbs_bank_home() restores bank 3. Do not load at boot or on connect.
  */
 
 #define BBS_BANK_BASE       0xB000u

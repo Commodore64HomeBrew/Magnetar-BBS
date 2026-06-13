@@ -52,12 +52,13 @@ SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_proc
 
 /* Defer disk/bank work out of telnetd_appcall and deep login stack frames. */
 static unsigned char bbs_login_defer_flags;
-#define BBS_LOGIN_DEFER_HOME    0x01u
+#define BBS_LOGIN_DEFER_HOME    0x01u /* bank 3 + login banner after encoding choice */
 #define BBS_LOGIN_DEFER_STATS   0x02u
 #define BBS_LOGIN_DEFER_FINISH  0x04u
 
 static void bbs_login_schedule_poll(void);
 static void bbs_login_defer_stats_screen(void);
+static void bbs_login_begin_handle(void);
 
 /* post_synch from telnet would re-enter login/bank PT; defer with process_post.
  * Line buffer lives in LOWBSS ($A1F3..$A27F) to keep BSSHI stack gap. */
@@ -493,6 +494,19 @@ bbs_login_defer_stats_screen(void)
 }
 
 static void
+bbs_login_begin_handle(void)
+{
+  if(bbs_bank_ensure_msg() == 0u) {
+    log_message("\x96", "msg bank");
+  }
+  bbs_banner(board.sys_prefix, BBS_BANNER_LOGIN, bbs_status.encoding_suffix,
+      board.sys_device, 0);
+  shell_output_str(NULL, "\r\nnew users enter a new handle.", "");
+  shell_prompt("\n\rhandle: ");
+  bbs_status.status = STATUS_HANDLE;
+}
+
+static void
 login_stats_continue(void)
 {
   bbs_record_last_caller();
@@ -529,9 +543,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
     if(ev == PROCESS_EVENT_POLL) {
       if((bbs_login_defer_flags & BBS_LOGIN_DEFER_HOME) != 0u) {
         bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_HOME;
-        if(bbs_bank_ensure_msg() == 0u) {
-          log_message("\x96", "msg bank");
-        }
+        bbs_login_begin_handle();
         if(bbs_login_defer_flags != 0u) {
           bbs_login_schedule_poll();
         }
@@ -612,10 +624,8 @@ PROCESS_THREAD(bbs_login_process, ev, data)
               shell_prompt(BBS_ENCODING_STRING);
               break;
             }
-            bbs_banner(board.sys_prefix, BBS_BANNER_LOGIN, bbs_status.encoding_suffix, board.sys_device,0);
-            shell_output_str(NULL, "\r\nnew users enter a new handle.", "");
-            shell_prompt("\n\rhandle: ");
-            bbs_status.status=STATUS_HANDLE;
+            bbs_login_defer_flags |= BBS_LOGIN_DEFER_HOME;
+            bbs_login_schedule_poll();
             break;
           }
 
@@ -1480,13 +1490,9 @@ shell_start(void)
   if(!bbs_try_lock_for_session()) {
     return;
   }
-  /* Queue encoding menu only; bank load must not run inside telnetd_appcall. */
+  /* Encoding menu only; bank + login banner run on login PT poll after choice. */
   shell_preconnect_banner();
   front_process = &bbs_login_process;
-  if(bbs_bank_id_active() != BBS_BANK_ID_MSG) {
-    bbs_login_defer_flags |= BBS_LOGIN_DEFER_HOME;
-    bbs_login_schedule_poll();
-  }
 }
 /*---------------------------------------------------------------------------*/
 void
