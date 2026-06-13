@@ -127,6 +127,21 @@ bbs_bank_forget(void)
 }
 
 unsigned char
+bbs_bank_home(void)
+{
+  return bbs_bank_load(BBS_BANK_ID_MSG);
+}
+
+unsigned char
+bbs_bank_ensure_msg(void)
+{
+  if(bbs_bank_id_active() == BBS_BANK_ID_MSG) {
+    return 1u;
+  }
+  return bbs_bank_home();
+}
+
+unsigned char
 bbs_bank_active(void)
 {
   return bbs_bank_loaded;

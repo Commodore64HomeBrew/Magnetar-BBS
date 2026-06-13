@@ -40,7 +40,6 @@ unsigned short set_step=0;
 
 static unsigned char bbs_command_bank_id(const char *cmd, int len);
 static unsigned char bbs_bank_route_command(const char *cmd, int len);
-static unsigned char bbs_ensure_msg_bank(void);
 static void shell_do_quit(void);
 
 /*---------------------------------------------------------------------------*/
@@ -53,12 +52,11 @@ SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_proc
 
 /* Defer disk/bank work out of telnetd_appcall and deep login stack frames. */
 static unsigned char bbs_login_defer_flags;
-#define BBS_LOGIN_DEFER_BANK    0x01u
+#define BBS_LOGIN_DEFER_HOME    0x01u
 #define BBS_LOGIN_DEFER_STATS   0x02u
 #define BBS_LOGIN_DEFER_FINISH  0x04u
 
 static void bbs_login_schedule_poll(void);
-static void bbs_login_defer_msg_bank(void);
 static void bbs_login_defer_stats_screen(void);
 
 /* post_synch from telnet would re-enter login/bank PT; defer with process_post.
@@ -233,6 +231,10 @@ static void bbs_init(void)
 
   bbs_sysstats_sanitize();
   bbs_defaults();
+
+  if(bbs_bank_home() == 0u) {
+    log_message("\x96", "msg bank");
+  }
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -448,7 +450,7 @@ void bbs_login()
 	//Increment the dialy calls total:
 	++bbs_sysstats.daily_calls[bbs_sysstats.day_ptr];
 
-	if(bbs_ensure_msg_bank() == 0u) {
+	if(bbs_bank_id_active() != BBS_BANK_ID_MSG && bbs_bank_ensure_msg() == 0u) {
 		shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
 	}
 
@@ -488,29 +490,10 @@ bbs_login_schedule_poll(void)
 }
 
 static void
-bbs_login_defer_msg_bank(void)
-{
-  if(bbs_bank_id_active() == BBS_BANK_ID_MSG) {
-    return;
-  }
-  bbs_login_defer_flags |= BBS_LOGIN_DEFER_BANK;
-  bbs_login_schedule_poll();
-}
-
-static void
 bbs_login_defer_stats_screen(void)
 {
   bbs_login_defer_flags |= BBS_LOGIN_DEFER_STATS;
   bbs_login_schedule_poll();
-}
-
-static unsigned char
-bbs_ensure_msg_bank(void)
-{
-  if(bbs_bank_id_active() == BBS_BANK_ID_MSG) {
-    return 1u;
-  }
-  return bbs_bank_load(BBS_BANK_ID_MSG);
 }
 
 static void
@@ -518,7 +501,11 @@ login_stats_continue(void)
 {
   bbs_record_last_caller();
   telnetd_discard_pending_rx();
-  if(bbs_ensure_msg_bank() != 0u) {
+#ifndef BBS_SERIAL_TRANSPORT
+  bbs_transport_flush_outbound();
+#endif
+  if(bbs_bank_id_active() == BBS_BANK_ID_MSG ||
+      bbs_bank_ensure_msg() != 0u) {
     bbs_bank_run_sys_stats();
   } else {
     shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
@@ -544,10 +531,10 @@ PROCESS_THREAD(bbs_login_process, ev, data)
         ev == PROCESS_EVENT_POLL);
 
     if(ev == PROCESS_EVENT_POLL) {
-      if((bbs_login_defer_flags & BBS_LOGIN_DEFER_BANK) != 0u) {
-        bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_BANK;
-        if(bbs_bank_id_active() != BBS_BANK_ID_MSG) {
-          (void)bbs_bank_load(BBS_BANK_ID_MSG);
+      if((bbs_login_defer_flags & BBS_LOGIN_DEFER_HOME) != 0u) {
+        bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_HOME;
+        if(bbs_bank_ensure_msg() == 0u) {
+          log_message("\x96", "msg bank");
         }
         if(bbs_login_defer_flags != 0u) {
           bbs_login_schedule_poll();
@@ -633,7 +620,6 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             shell_output_str(NULL, "\r\nnew users enter a new handle.", "");
             shell_prompt("\n\rhandle: ");
             bbs_status.status=STATUS_HANDLE;
-            bbs_login_defer_msg_bank();
             break;
           }
 
@@ -832,7 +818,7 @@ PROCESS_THREAD(movie_process, ev, data)
       shell_output_str(NULL, "\r\n\x96movie open failed\r\n", "");
       bordercolor(2);
       poke(0xd011, peek(0xd011) | 0x10);
-      (void)bbs_bank_load(BBS_BANK_ID_MSG);
+      (void)bbs_bank_home();
     } else {
 #ifndef BBS_SERIAL_TRANSPORT
       bbs_transport_flush_outbound();
@@ -855,7 +841,7 @@ PROCESS_THREAD(movie_process, ev, data)
       bbs_stream_set_eof_process(NULL);
       bordercolor(2);
       poke(0xd011, peek(0xd011) | 0x10);
-      if(bbs_bank_load(BBS_BANK_ID_MSG) == 0u) {
+      if(bbs_bank_home() == 0u) {
         shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
       }
     }
@@ -1501,6 +1487,10 @@ shell_start(void)
   /* Queue encoding menu only; bank load must not run inside telnetd_appcall. */
   shell_preconnect_banner();
   front_process = &bbs_login_process;
+  if(bbs_bank_id_active() != BBS_BANK_ID_MSG) {
+    bbs_login_defer_flags |= BBS_LOGIN_DEFER_HOME;
+    bbs_login_schedule_poll();
+  }
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -1509,7 +1499,9 @@ shell_stop(void)
   //log_message("\x9e", "shell stop");
   bbs_unlock();
   killall();
-  bbs_bank_forget();
+  if(bbs_bank_home() == 0u) {
+    log_message("\x96", "msg bank");
+  }
 }
 /*---------------------------------------------------------------------------*/
 void

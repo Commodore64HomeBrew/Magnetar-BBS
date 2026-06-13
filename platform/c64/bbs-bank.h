@@ -6,6 +6,10 @@
 /*
  * Bank overlays at $B000 (8 KiB). Core loads .bin via bbs_bank_load().
  * Banks call core through fixed RESAPI stubs at $A210 (bbs-api.h).
+ *
+ * Policy: bank 3 (message board) is loaded at boot (bbs_init) and after each
+ * session (shell_stop). Other banks replace the overlay on demand via
+ * bbs_bank_load(); bbs_bank_home() restores bank 3.
  */
 
 #define BBS_BANK_BASE       0xB000u
@@ -70,6 +74,9 @@ void bbs_api_init(void);
 unsigned char bbs_bank_load(unsigned char bank_id);
 void bbs_bank_unload(void);
 void bbs_bank_forget(void);
+/* Idle default: message board (bank 3). Load at boot and after each session. */
+unsigned char bbs_bank_home(void);
+unsigned char bbs_bank_ensure_msg(void);
 unsigned char bbs_bank_active(void);
 unsigned char bbs_bank_id_active(void);
 void bbs_bank_set_op(const char *cmd);
