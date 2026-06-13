@@ -51,11 +51,15 @@ PROCESS(bbs_timer_process, "timer");
 PROCESS(bbs_login_process, "login");
 SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_process);
 
-#ifndef BBS_SERIAL_TRANSPORT
-/* Defer disk/bank work out of telnetd_appcall (uip_connected / flush paths). */
-static unsigned char bbs_login_defer_op;
-#define BBS_LOGIN_DEFER_FINISH  1u
-#endif
+/* Defer disk/bank work out of telnetd_appcall and deep login stack frames. */
+static unsigned char bbs_login_defer_flags;
+#define BBS_LOGIN_DEFER_BANK    0x01u
+#define BBS_LOGIN_DEFER_STATS   0x02u
+#define BBS_LOGIN_DEFER_FINISH  0x04u
+
+static void bbs_login_schedule_poll(void);
+static void bbs_login_defer_msg_bank(void);
+static void bbs_login_defer_stats_screen(void);
 
 /* post_synch from telnet would re-enter login/bank PT; defer with process_post.
  * Line buffer lives in LOWBSS ($A1F3..$A27F) to keep BSSHI stack gap. */
@@ -477,6 +481,28 @@ void bbs_login()
 #endif
 }
 
+static void
+bbs_login_schedule_poll(void)
+{
+  (void)process_post(&bbs_login_process, PROCESS_EVENT_POLL, NULL);
+}
+
+static void
+bbs_login_defer_msg_bank(void)
+{
+  if(bbs_bank_id_active() == BBS_BANK_ID_MSG) {
+    return;
+  }
+  bbs_login_defer_flags |= BBS_LOGIN_DEFER_BANK;
+  bbs_login_schedule_poll();
+}
+
+static void
+bbs_login_defer_stats_screen(void)
+{
+  bbs_login_defer_flags |= BBS_LOGIN_DEFER_STATS;
+  bbs_login_schedule_poll();
+}
 
 static unsigned char
 bbs_ensure_msg_bank(void)
@@ -514,20 +540,35 @@ PROCESS_THREAD(bbs_login_process, ev, data)
 
   while(1) {
 
-#if defined(BBS_SERIAL_TRANSPORT)
-    PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || ev == PROCESS_EVENT_TIMER);
-#else
     PROCESS_WAIT_EVENT_UNTIL(ev == shell_event_input || ev == PROCESS_EVENT_TIMER ||
         ev == PROCESS_EVENT_POLL);
-#endif
 
-#ifndef BBS_SERIAL_TRANSPORT
-    if(ev == PROCESS_EVENT_POLL && bbs_login_defer_op == BBS_LOGIN_DEFER_FINISH) {
-      bbs_login_defer_op = 0u;
-      bbs_login();
+    if(ev == PROCESS_EVENT_POLL) {
+      if((bbs_login_defer_flags & BBS_LOGIN_DEFER_BANK) != 0u) {
+        bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_BANK;
+        if(bbs_bank_id_active() != BBS_BANK_ID_MSG) {
+          (void)bbs_bank_load(BBS_BANK_ID_MSG);
+        }
+        if(bbs_login_defer_flags != 0u) {
+          bbs_login_schedule_poll();
+        }
+        continue;
+      }
+      if((bbs_login_defer_flags & BBS_LOGIN_DEFER_STATS) != 0u) {
+        bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_STATS;
+        login_stats_continue();
+        if(bbs_login_defer_flags != 0u) {
+          bbs_login_schedule_poll();
+        }
+        continue;
+      }
+      if((bbs_login_defer_flags & BBS_LOGIN_DEFER_FINISH) != 0u) {
+        bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_FINISH;
+        bbs_login();
+        continue;
+      }
       continue;
     }
-#endif
 
     if (ev == PROCESS_EVENT_TIMER) {
       /* Login timeout only; session timeout is broadcast to shell_process. */
@@ -592,6 +633,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             shell_output_str(NULL, "\r\nnew users enter a new handle.", "");
             shell_prompt("\n\rhandle: ");
             bbs_status.status=STATUS_HANDLE;
+            bbs_login_defer_msg_bank();
             break;
           }
 
@@ -628,7 +670,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
           case STATUS_PASSWD: {
             if(! strcmp(input->data1, bbs_user.user_pwd)) {
 
-				login_stats_continue();
+				bbs_login_defer_stats_screen();
 
             } else {
               shell_output_str(NULL, "wrong password.", "");
@@ -657,7 +699,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             if(login_token_eq(input->data1, 'y')) {
               bbs_save_user();
 
-				login_stats_continue();
+				bbs_login_defer_stats_screen();
 
               //bbs_login();
             }
@@ -674,11 +716,9 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             telnetd_discard_pending_rx();
 #ifndef BBS_SERIAL_TRANSPORT
             bbs_transport_flush_outbound();
-            bbs_login_defer_op = BBS_LOGIN_DEFER_FINISH;
-            process_post(&bbs_login_process, PROCESS_EVENT_POLL, NULL);
-#else
-            bbs_login();
 #endif
+            bbs_login_defer_flags |= BBS_LOGIN_DEFER_FINISH;
+            bbs_login_schedule_poll();
             break;
           }
           case STATUS_LOCK:

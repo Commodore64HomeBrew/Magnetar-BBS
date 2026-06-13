@@ -61,7 +61,7 @@ typedef struct bbs_shared_s {
 } bbs_shared_t;
 
 #define BBS_SHARED_BASE     0xA280u
-#define BBS_SHARED_SIZE     0x0350u
+#define BBS_SHARED_SIZE     0x0347u
 
 extern bbs_shared_t bbs_shared_data;
 #define BBS_SHARED          ((bbs_shared_t *)BBS_SHARED_BASE)
