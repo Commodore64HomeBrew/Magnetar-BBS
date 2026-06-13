@@ -143,6 +143,21 @@ bbs_bank_load(unsigned char bank_id)
   return bbs_bank_load_ex(bank_id, 1u);
 }
 
+unsigned char
+bbs_bank_read_staged(unsigned char bank_id)
+{
+  return bbs_bank_read_image(bank_id);
+}
+
+unsigned char
+bbs_bank_activate_staged(unsigned char reset_transport)
+{
+  if(bbs_bank_loaded != 0u) {
+    return 1u;
+  }
+  return bbs_bank_activate_image(reset_transport);
+}
+
 void
 bbs_bank_unload(void)
 {
