@@ -11,6 +11,8 @@ extern int shell_event_input;
 
 static unsigned char bbs_bank_loaded;
 static unsigned char bbs_bank_cur_id;
+static unsigned char bbs_bank_image_ready;
+static unsigned char bbs_bank_image_id;
 
 typedef unsigned char (*bbs_bank_init_fn)(void);
 typedef void (*bbs_bank_void_fn)(void);
@@ -52,13 +54,12 @@ bbs_api_init(void)
 }
 
 static unsigned char
-bbs_bank_load_ex(unsigned char bank_id, unsigned char reset_transport)
+bbs_bank_read_image(unsigned char bank_id)
 {
   unsigned int total;
   unsigned int n;
   unsigned char *dst;
   const char *filename;
-  bbs_bank_init_fn init_fn;
 
   filename = bbs_bank_filename(bank_id);
   if(filename == NULL) {
@@ -71,6 +72,7 @@ bbs_bank_load_ex(unsigned char bank_id, unsigned char reset_transport)
     bbs_bank_unload();
   }
 
+  bbs_bank_image_ready = 0u;
   bbs_api_init();
 
   if(cbm_open(BBS_FILE_CHANNEL, board.sys_device, BBS_FILE_CHANNEL,
@@ -93,10 +95,25 @@ bbs_bank_load_ex(unsigned char bank_id, unsigned char reset_transport)
     return 0u;
   }
 
+  bbs_bank_image_id = bank_id;
+  bbs_bank_image_ready = 1u;
+  return 1u;
+}
+
+static unsigned char
+bbs_bank_activate_image(unsigned char reset_transport)
+{
+  bbs_bank_init_fn init_fn;
+
+  if(bbs_bank_image_ready == 0u) {
+    return 0u;
+  }
+
   init_fn = (bbs_bank_init_fn)BBS_BANK_INIT_ADDR;
-  BBS_SHARED->active_bank = bank_id;
+  BBS_SHARED->active_bank = bbs_bank_image_id;
   bbs_bank_loaded = 1u;
-  bbs_bank_cur_id = bank_id;
+  bbs_bank_cur_id = bbs_bank_image_id;
+  bbs_bank_image_ready = 0u;
 
   if(init_fn() == 0u) {
     bbs_bank_forget();
@@ -106,6 +123,18 @@ bbs_bank_load_ex(unsigned char bank_id, unsigned char reset_transport)
     bbs_transport_buf_reset();
   }
   return 1u;
+}
+
+static unsigned char
+bbs_bank_load_ex(unsigned char bank_id, unsigned char reset_transport)
+{
+  if(bbs_bank_loaded != 0u && bbs_bank_cur_id == bank_id) {
+    return 1u;
+  }
+  if(bbs_bank_read_image(bank_id) == 0u) {
+    return 0u;
+  }
+  return bbs_bank_activate_image(reset_transport);
 }
 
 unsigned char
@@ -132,6 +161,7 @@ bbs_bank_forget(void)
   BBS_SHARED->active_bank = 0u;
   bbs_bank_loaded = 0u;
   bbs_bank_cur_id = 0u;
+  bbs_bank_image_ready = 0u;
 }
 
 unsigned char
@@ -143,7 +173,10 @@ bbs_bank_home(void)
 unsigned char
 bbs_bank_boot_idle(void)
 {
-  return bbs_bank_home();
+  if(bbs_bank_read_image(BBS_BANK_ID_MSG) == 0u) {
+    return 0u;
+  }
+  return bbs_bank_activate_image(0u);
 }
 
 unsigned char
