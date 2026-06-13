@@ -77,6 +77,7 @@ void bbs_bank_forget(void);
 /* Idle default: message board (bank 3). Load at boot and after each session. */
 unsigned char bbs_bank_home(void);
 unsigned char bbs_bank_ensure_msg(void);
+unsigned char bbs_bank_boot_idle(void);
 unsigned char bbs_bank_active(void);
 unsigned char bbs_bank_id_active(void);
 void bbs_bank_set_op(const char *cmd);

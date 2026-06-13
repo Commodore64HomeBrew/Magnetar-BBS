@@ -51,8 +51,8 @@ bbs_api_init(void)
   BBS_SHARED->s_shell_ev = &shell_event_input;
 }
 
-unsigned char
-bbs_bank_load(unsigned char bank_id)
+static unsigned char
+bbs_bank_load_ex(unsigned char bank_id, unsigned char reset_transport)
 {
   unsigned int total;
   unsigned int n;
@@ -102,8 +102,16 @@ bbs_bank_load(unsigned char bank_id)
     bbs_bank_forget();
     return 0u;
   }
-  bbs_transport_buf_reset();
+  if(reset_transport != 0u) {
+    bbs_transport_buf_reset();
+  }
   return 1u;
+}
+
+unsigned char
+bbs_bank_load(unsigned char bank_id)
+{
+  return bbs_bank_load_ex(bank_id, 1u);
 }
 
 void
@@ -129,7 +137,13 @@ bbs_bank_forget(void)
 unsigned char
 bbs_bank_home(void)
 {
-  return bbs_bank_load(BBS_BANK_ID_MSG);
+  return bbs_bank_load_ex(BBS_BANK_ID_MSG, 0u);
+}
+
+unsigned char
+bbs_bank_boot_idle(void)
+{
+  return bbs_bank_home();
 }
 
 unsigned char
@@ -137,6 +151,9 @@ bbs_bank_ensure_msg(void)
 {
   if(bbs_bank_id_active() == BBS_BANK_ID_MSG) {
     return 1u;
+  }
+  if(bbs_bank_active() != 0u) {
+    return bbs_bank_load(BBS_BANK_ID_MSG);
   }
   return bbs_bank_home();
 }

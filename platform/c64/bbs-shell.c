@@ -55,6 +55,7 @@ static unsigned char bbs_login_defer_flags;
 #define BBS_LOGIN_DEFER_HOME    0x01u
 #define BBS_LOGIN_DEFER_STATS   0x02u
 #define BBS_LOGIN_DEFER_FINISH  0x04u
+static unsigned char bbs_boot_bank_pending;
 
 static void bbs_login_schedule_poll(void);
 static void bbs_login_defer_stats_screen(void);
@@ -231,10 +232,6 @@ static void bbs_init(void)
 
   bbs_sysstats_sanitize();
   bbs_defaults();
-
-  if(bbs_bank_home() == 0u) {
-    log_message("\x96", "msg bank");
-  }
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -531,6 +528,16 @@ PROCESS_THREAD(bbs_login_process, ev, data)
         ev == PROCESS_EVENT_POLL);
 
     if(ev == PROCESS_EVENT_POLL) {
+      if(bbs_boot_bank_pending != 0u) {
+        bbs_boot_bank_pending = 0u;
+        if(bbs_bank_boot_idle() == 0u) {
+          log_message("\x96", "msg bank");
+        }
+        if(bbs_login_defer_flags != 0u) {
+          bbs_login_schedule_poll();
+        }
+        continue;
+      }
       if((bbs_login_defer_flags & BBS_LOGIN_DEFER_HOME) != 0u) {
         bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_HOME;
         if(bbs_bank_ensure_msg() == 0u) {
@@ -1434,6 +1441,10 @@ shell_init(void)
   front_process = &bbs_login_process;
 
   bbs_status.status=STATUS_UNLOCK;
+
+  /* Defer bank 3 load to login PT poll (safe stack; after shell_event_input exists). */
+  bbs_boot_bank_pending = 1u;
+  bbs_login_schedule_poll();
 }
 /*---------------------------------------------------------------------------*/
 void
