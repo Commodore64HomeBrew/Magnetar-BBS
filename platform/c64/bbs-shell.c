@@ -1436,22 +1436,13 @@ void
 magnetar_bbs_after_autostart(void)
 {
   unsigned char i;
-  unsigned char bank_ok;
 
-  /* Load bank 3 from main's stack after autostart returns (not inside telnetd PT). */
-  bank_ok = bbs_bank_boot_read();
+  /* Drain autostart CONTINUE events before main loop (shell_init already started processes). */
   for(i = 0; i < 16u; ++i) {
     if(process_run() == 0 && process_nevents() == 0) {
       break;
     }
     etimer_request_poll();
-  }
-  if(bank_ok != 0u) {
-    if(bbs_bank_boot_activate() == 0u) {
-      log_message("\x96", "msg bank");
-    }
-  } else {
-    log_message("\x96", "msg bank");
   }
 }
 /*---------------------------------------------------------------------------*/

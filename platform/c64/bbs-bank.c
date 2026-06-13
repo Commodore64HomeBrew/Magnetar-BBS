@@ -171,27 +171,6 @@ bbs_bank_home(void)
 }
 
 unsigned char
-bbs_bank_boot_read(void)
-{
-  return bbs_bank_read_image(BBS_BANK_ID_MSG);
-}
-
-unsigned char
-bbs_bank_boot_activate(void)
-{
-  return bbs_bank_activate_image(0u);
-}
-
-unsigned char
-bbs_bank_boot_idle(void)
-{
-  if(bbs_bank_boot_read() == 0u) {
-    return 0u;
-  }
-  return bbs_bank_boot_activate();
-}
-
-unsigned char
 bbs_bank_ensure_msg(void)
 {
   if(bbs_bank_id_active() == BBS_BANK_ID_MSG) {
