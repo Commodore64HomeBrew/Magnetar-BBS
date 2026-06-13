@@ -51,10 +51,10 @@ memcheck: $(CONTIKI_PROJECT).c64 banks
 	@echo "  MEMCHECK  shared struct"
 	@$(CC) -c $(CFLAGS) -o $(OBJECTDIR)/bbs-shared-size.o bbs-shared-size.c
 	@echo "  MEMCHECK  core"
-	@python3 $(CURDIR)/check-memmap.py core contiki-c64.map $(CONTIKI_PROJECT).c64
+	@python3 $(CURDIR)/check-memmap.py core contiki-c64.map $(CONTIKI_PROJECT).c64 0
 	@set -e; for n in 1 2 3 5; do \
 	  echo "  MEMCHECK  bank$$n"; \
-	  python3 $(CURDIR)/check-memmap.py bank bbs-bank$$n.prg.map bbs-bank$$n.bin; \
+	  python3 $(CURDIR)/check-memmap.py bank bbs-bank$$n.prg.map bbs-bank$$n.bin $$n; \
 	done
 
 $(OBJECTDIR):

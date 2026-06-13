@@ -52,10 +52,9 @@ SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_proc
 
 /* Defer disk/bank work out of telnetd_appcall and deep login stack frames. */
 static unsigned char bbs_login_defer_flags;
-#define BBS_LOGIN_DEFER_HOME       0x01u /* login banner after encoding choice (no bank load) */
-#define BBS_LOGIN_DEFER_STATS_READ 0x02u /* cbm_read overlay after password */
-#define BBS_LOGIN_DEFER_STATS_RUN  0x08u /* init overlay + stats chart */
-#define BBS_LOGIN_DEFER_FINISH     0x04u
+#define BBS_LOGIN_DEFER_HOME    0x01u /* login banner after encoding choice (no bank load) */
+#define BBS_LOGIN_DEFER_STATS   0x02u /* msg bank + stats chart after password */
+#define BBS_LOGIN_DEFER_FINISH  0x04u
 
 static void bbs_login_schedule_poll(void);
 static void bbs_login_defer_stats_screen(void);
@@ -490,7 +489,7 @@ bbs_login_schedule_poll(void)
 static void
 bbs_login_defer_stats_screen(void)
 {
-  bbs_login_defer_flags |= BBS_LOGIN_DEFER_STATS_READ;
+  bbs_login_defer_flags |= BBS_LOGIN_DEFER_STATS;
   bbs_login_schedule_poll();
 }
 
@@ -506,10 +505,15 @@ bbs_login_begin_handle(void)
 }
 
 static void
-login_stats_show(void)
+login_stats_continue(void)
 {
+  bbs_record_last_caller();
+  telnetd_discard_pending_rx();
+#ifndef BBS_SERIAL_TRANSPORT
+  bbs_transport_flush_outbound();
+#endif
   if(bbs_bank_id_active() == BBS_BANK_ID_MSG ||
-      bbs_bank_activate_staged(0u) != 0u) {
+      bbs_bank_ensure_msg() != 0u) {
     bbs_bank_run_sys_stats();
   } else {
     shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
@@ -543,23 +547,9 @@ PROCESS_THREAD(bbs_login_process, ev, data)
         }
         continue;
       }
-      if((bbs_login_defer_flags & BBS_LOGIN_DEFER_STATS_READ) != 0u) {
-        bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_STATS_READ;
-        bbs_record_last_caller();
-        telnetd_discard_pending_rx();
-#ifndef BBS_SERIAL_TRANSPORT
-        bbs_transport_flush_outbound();
-#endif
-        (void)bbs_bank_read_staged(BBS_BANK_ID_MSG);
-        PROCESS_PAUSE();
-        bbs_login_defer_flags |= BBS_LOGIN_DEFER_STATS_RUN;
-        bbs_login_schedule_poll();
-        continue;
-      }
-      if((bbs_login_defer_flags & BBS_LOGIN_DEFER_STATS_RUN) != 0u) {
-        bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_STATS_RUN;
-        PROCESS_PAUSE();
-        login_stats_show();
+      if((bbs_login_defer_flags & BBS_LOGIN_DEFER_STATS) != 0u) {
+        bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_STATS;
+        login_stats_continue();
         if(bbs_login_defer_flags != 0u) {
           bbs_login_schedule_poll();
         }

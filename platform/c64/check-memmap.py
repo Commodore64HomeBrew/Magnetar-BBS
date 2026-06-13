@@ -11,6 +11,10 @@ BBS_API_BASE = 0xA210
 BBS_SHARED_BASE = 0xA280
 BBS_SHARED_SIZE = 0x0347
 BBS_SHARED_STRUCT_MIN = 0x0347  # sizeof(bbs_shared_t); keep BBS_SHARED_SIZE >= this
+BBS_API_STUB_SIZE = 3
+BBS_API_STUB_COUNT = 22
+BBS_API_SIZE = BBS_API_STUB_COUNT * BBS_API_STUB_SIZE
+BBS_ABI_VERSION = 0x0100
 
 BBS_BANK_BASE = 0xB000
 BANK_TOP = 0xD000
@@ -18,6 +22,12 @@ BANK_STACK = 0x0200
 BANK_RAM_SIZE = BANK_TOP - BANK_STACK - BBS_BANK_BASE
 BANK_MIN_STACK_GAP = 48
 BANK_HDR_SIZE = 0x15
+
+BBS_BANK_INIT_OFF = 0x06
+BBS_BANK_DEINIT_OFF = 0x09
+BBS_BANK_SET_OP_OFF = 0x0C
+BBS_BANK_FEED_OFF = 0x0F
+BBS_BANK_RUN_STATS_OFF = 0x12
 
 SCR_BASE = 0x0400
 SCR_LAST = 0x07E7
@@ -55,6 +65,60 @@ def check_screen_layout():
         raise SystemExit("xfer TX size non-positive")
 
 
+def jmp_target(buf, off):
+    if buf[off] != 0x4C:
+        return None
+    return buf[off + 1] | (buf[off + 2] << 8)
+
+
+def check_bank_header(bin_path, bank_id):
+    try:
+        with open(bin_path, "rb") as f:
+            hdr = f.read(BANK_HDR_SIZE)
+    except OSError as e:
+        raise SystemExit(f"{bin_path}: {e}") from e
+    if len(hdr) < BANK_HDR_SIZE:
+        raise SystemExit(f"{bin_path}: header {len(hdr)} B < {BANK_HDR_SIZE} B")
+    expect = 0x30 + bank_id
+    if hdr[0:4] != bytes([0x42, 0x42, 0x4B, expect]):
+        raise SystemExit(
+            f"{bin_path}: sig want BBK{chr(expect)}, got "
+            f"{hdr[0]:02x}{hdr[1]:02x}{hdr[2]:02x}{hdr[3]:02x}"
+        )
+    abi = hdr[4] | (hdr[5] << 8)
+    if abi != BBS_ABI_VERSION:
+        raise SystemExit(
+            f"{bin_path}: ABI ${abi:04X}, expected ${BBS_ABI_VERSION:04X}"
+        )
+    code_lo = BBS_BANK_BASE + BANK_HDR_SIZE
+    for off, name in (
+        (BBS_BANK_INIT_OFF, "init"),
+        (BBS_BANK_DEINIT_OFF, "deinit"),
+    ):
+        tgt = jmp_target(hdr, off)
+        if tgt is None:
+            raise SystemExit(
+                f"{bin_path}: ${BBS_BANK_BASE + off:04X} ({name}) not JMP "
+                f"(got ${hdr[off]:02X}) — stale bank .bin?"
+            )
+        if tgt < code_lo or tgt >= BANK_TOP:
+            raise SystemExit(
+                f"{bin_path}: {name} JMP ${tgt:04X} outside "
+                f"${code_lo:04X}-${BANK_TOP - 1:04X}"
+            )
+    if bank_id == 3:
+        tgt = jmp_target(hdr, BBS_BANK_RUN_STATS_OFF)
+        if tgt is None:
+            raise SystemExit(
+                f"{bin_path}: run_stats at "
+                f"${BBS_BANK_BASE + BBS_BANK_RUN_STATS_OFF:04X} not JMP"
+            )
+        if tgt < code_lo or tgt >= BANK_TOP:
+            raise SystemExit(
+                f"{bin_path}: run_stats JMP ${tgt:04X} outside bank code"
+            )
+
+
 def check_core(map_path, bin_path):
     check_screen_layout()
 
@@ -90,6 +154,11 @@ def check_core(map_path, bin_path):
     if resapi[0] != BBS_API_BASE:
         raise SystemExit(
             f"RESAPI at ${resapi[0]:04X}, expected ${BBS_API_BASE:04X}"
+        )
+    if resapi[2] != BBS_API_SIZE:
+        raise SystemExit(
+            f"RESAPI size {resapi[2]} B, expected {BBS_API_SIZE} B "
+            f"({BBS_API_STUB_COUNT} JMP stubs)"
         )
     if resapi[1] > BBS_SHARED_BASE:
         raise SystemExit(
@@ -132,7 +201,7 @@ def check_core(map_path, bin_path):
     )
 
 
-def check_bank(map_path, bin_path):
+def check_bank(map_path, bin_path, bank_id):
     if BBS_BANK_BASE != CORE_HIMEM:
         raise SystemExit("BBS_BANK_BASE must equal core __HIMEM__")
 
@@ -169,6 +238,7 @@ def check_bank(map_path, bin_path):
         raise SystemExit(
             f"{bin_path}: {bin_sz} B exceeds bank RAM {BANK_RAM_SIZE} B"
         )
+    check_bank_header(bin_path, bank_id)
     print(
         f"bank OK: linked to ${hi - 1:04X}, stack gap {stack_gap} B, "
         f"bin {bin_sz} B ({BANK_RAM_SIZE - bin_sz} B under RAM cap)"
@@ -176,13 +246,13 @@ def check_bank(map_path, bin_path):
 
 
 def main():
-    if len(sys.argv) != 4:
-        raise SystemExit(f"usage: {sys.argv[0]} core|bank MAP BIN")
-    kind, map_path, bin_path = sys.argv[1:4]
+    if len(sys.argv) != 5:
+        raise SystemExit(f"usage: {sys.argv[0]} core|bank MAP BIN BANK_ID")
+    kind, map_path, bin_path, bank_id_s = sys.argv[1:5]
     if kind == "core":
         check_core(map_path, bin_path)
     elif kind == "bank":
-        check_bank(map_path, bin_path)
+        check_bank(map_path, bin_path, int(bank_id_s))
     else:
         raise SystemExit(f"unknown kind {kind!r}")
 

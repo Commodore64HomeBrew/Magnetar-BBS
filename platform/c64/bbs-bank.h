@@ -10,9 +10,9 @@
  * Policy: bank 3 loads after password (login stats / bbs_login) and after each
  * session (shell_stop). Other banks replace the overlay on demand;
  * bbs_bank_home() restores bank 3. Do not load at boot, on connect, or at encoding.
- * Login stats use bbs_bank_read_staged() then bbs_bank_activate_staged() across
- * two poll rounds so cbm_read and init do not share one deep stack frame.
  */
+
+#define BBS_BANK_HDR_SIZE       0x0015u
 
 #define BBS_BANK_BASE       0xB000u
 #define BBS_BANK_LINK_TOP   0xD000u
@@ -74,9 +74,6 @@ extern bbs_shared_t bbs_shared_data;
 
 void bbs_api_init(void);
 unsigned char bbs_bank_load(unsigned char bank_id);
-/* Split load for shallow stack contexts (login stats after password). */
-unsigned char bbs_bank_read_staged(unsigned char bank_id);
-unsigned char bbs_bank_activate_staged(unsigned char reset_transport);
 void bbs_bank_unload(void);
 void bbs_bank_forget(void);
 /* Idle default: message board (bank 3). Load at boot and after each session. */
