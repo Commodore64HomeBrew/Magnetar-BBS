@@ -20,6 +20,7 @@
 
 #include "contiki.h"
 #include <serial.h>
+#include "bbs-shell.h"
 #include "bbs-telnetd.h"
 #include "lib/error.h"
 #include "sys/log.h"
@@ -86,6 +87,7 @@ main(void)
   magnetar_serial_install_driver();
   procinit_init();
   autostart_start(autostart_processes);
+  magnetar_bbs_after_autostart();
 
   while(1) {
     process_run();
