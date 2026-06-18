@@ -106,7 +106,7 @@ def check_bank_header(bin_path, bank_id):
                 f"{bin_path}: {name} JMP ${tgt:04X} outside "
                 f"${code_lo:04X}-${BANK_TOP - 1:04X}"
             )
-    if bank_id == 3:
+    if bank_id == 4:
         tgt = jmp_target(hdr, BBS_BANK_RUN_STATS_OFF)
         if tgt is None:
             raise SystemExit(

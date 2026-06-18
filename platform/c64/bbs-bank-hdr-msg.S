@@ -1,7 +1,6 @@
 .include "bbs-bank-entry.inc"
 
 .import _bbs_msg_bank_init, _bbs_msg_bank_deinit, _bbs_msg_set_op
-.import _bbs_msg_system_stats
 
 .segment "BANKHDR"
 
@@ -16,5 +15,5 @@ bank_hdr:
         jmp _bbs_msg_set_op
         .res 2, $ea
         rts
-        .org $12
-        jmp _bbs_msg_system_stats
+        .res 2, $ea
+        rts

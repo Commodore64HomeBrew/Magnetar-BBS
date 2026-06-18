@@ -9,13 +9,13 @@
 #endif
 
 #include "bbs-bank-macros.h"
-#include "bbs-bank-msg.h"
+
+static unsigned char stats_msg_buf[40];
 
 void
 bbs_msg_system_stats(void)
 {
   unsigned short total_msgs;
-  unsigned char message[40];
   unsigned char day_ptr, stats_days, day_offset;
   unsigned char j, k, c, d;
   unsigned short dm;
@@ -98,20 +98,6 @@ stats_chart_done:
   }
 
   shell_output_str(NULL, "\r\n\x9etotal msgs:\x05 ", "");
-  bbs_u16_to_dec(total_msgs, message);
-  shell_output_str(NULL, (char *)message, "");
-}
-
-SHELL_COMMAND(sys_stats_command, "x", "", &bbs_msg_nop_process);
-
-void
-bbs_sys_stats_init(void)
-{
-  shell_register_command(&sys_stats_command);
-}
-
-void
-bbs_sys_stats_deinit(void)
-{
-  shell_unregister_command(&sys_stats_command);
+  bbs_u16_to_dec(total_msgs, stats_msg_buf);
+  shell_output_str(NULL, (char *)stats_msg_buf, "");
 }

@@ -2,8 +2,6 @@
 #include "bbs-bank-msg.h"
 #include "bbs-read.h"
 #include "bbs-setboard.h"
-#include "bbs-sys-stats.h"
-#include "bbs-msg-extra.h"
 #include "bbs-bank-macros.h"
 
 PROCESS(bbs_msg_nop_process, "");
@@ -62,18 +60,6 @@ bbs_msg_set_op(const char *cmd)
       acted = 1u;
     }
     break;
-  case 'x':
-    bbs_msg_system_stats();
-    acted = 1u;
-    break;
-  case 'y':
-    bbs_msg_user_stats();
-    acted = 1u;
-    break;
-  case 'i':
-    bbs_msg_info();
-    acted = 1u;
-    break;
   default:
     break;
   }
@@ -87,16 +73,12 @@ bbs_msg_bank_init(void)
 {
   bbs_read_init();
   bbs_setboard_init();
-  bbs_sys_stats_init();
-  bbs_msg_extra_init();
   return 1u;
 }
 
 void
 bbs_msg_bank_deinit(void)
 {
-  bbs_msg_extra_deinit();
-  bbs_sys_stats_deinit();
   bbs_read_deinit();
   bbs_setboard_deinit();
 }

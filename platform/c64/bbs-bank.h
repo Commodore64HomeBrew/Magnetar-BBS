@@ -7,9 +7,11 @@
  * Bank overlays at $B000 (8 KiB). Core loads .bin via bbs_bank_load().
  * Banks call core through fixed RESAPI stubs at $A210 (bbs-api.h).
  *
- * Policy: load only when a routed command needs that bank and it is not active.
- * Login stats load bank 3 once for the chart. Do not load at boot, on connect,
- * encoding, command exit, or logout — bbs_bank_route_command() loads on demand.
+ * Policy:
+ * - After password: load bank 4 (stats) if not already active; run login chart.
+ * - At prompt: no bank load until a routed command needs that bank.
+ * - On disconnect: load bank 4 (stats) if not already active.
+ * - bbs_bank_load() skips disk/init when the requested bank is already active.
  */
 
 #define BBS_BANK_HDR_SIZE       0x0015u
@@ -25,6 +27,7 @@
 #define BBS_BANK_ID_XFER    1u
 #define BBS_BANK_ID_POST    2u
 #define BBS_BANK_ID_MSG     3u
+#define BBS_BANK_ID_STATS   4u
 #define BBS_BANK_ID_XMODEM  5u
 
 #define BBS_XFER_CWD_LEN    24u
@@ -76,6 +79,7 @@ void bbs_api_init(void);
 unsigned char bbs_bank_load(unsigned char bank_id);
 void bbs_bank_unload(void);
 void bbs_bank_forget(void);
+unsigned char bbs_bank_ensure_stats(void);
 unsigned char bbs_bank_active(void);
 unsigned char bbs_bank_id_active(void);
 void bbs_bank_set_op(const char *cmd);

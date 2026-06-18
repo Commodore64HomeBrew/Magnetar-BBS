@@ -40,6 +40,7 @@ bbs_bank_filename(unsigned char bank_id)
   case BBS_BANK_ID_XFER:   return "bbs-bank1.bin";
   case BBS_BANK_ID_POST:   return "bbs-bank2.bin";
   case BBS_BANK_ID_MSG:    return "bbs-bank3.bin";
+  case BBS_BANK_ID_STATS:  return "bbs-bank4.bin";
   case BBS_BANK_ID_XMODEM: return "bbs-bank5.bin";
   default:                 return NULL;
   }
@@ -131,6 +132,15 @@ bbs_bank_forget(void)
   BBS_SHARED->active_bank = 0u;
   bbs_bank_loaded = 0u;
   bbs_bank_cur_id = 0u;
+}
+
+unsigned char
+bbs_bank_ensure_stats(void)
+{
+  if(bbs_bank_id_active() == BBS_BANK_ID_STATS) {
+    return 1u;
+  }
+  return bbs_bank_load(BBS_BANK_ID_STATS);
 }
 
 unsigned char

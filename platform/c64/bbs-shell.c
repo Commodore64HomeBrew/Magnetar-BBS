@@ -54,9 +54,11 @@ SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_proc
 static unsigned char bbs_login_defer_flags;
 static unsigned char shell_skip_prompt;
 #define BBS_LOGIN_DEFER_HOME    0x01u /* login banner after encoding choice (no bank load) */
+#define BBS_LOGIN_DEFER_STATS   0x02u /* msg bank + stats chart after password */
 #define BBS_LOGIN_DEFER_FINISH  0x04u
 
 static void bbs_login_schedule_poll(void);
+static void bbs_login_defer_stats_screen(void);
 static void bbs_login_begin_handle(void);
 
 /* post_synch from telnet would re-enter login/bank PT; defer with process_post.
@@ -483,6 +485,13 @@ bbs_login_schedule_poll(void)
 }
 
 static void
+bbs_login_defer_stats_screen(void)
+{
+  bbs_login_defer_flags |= BBS_LOGIN_DEFER_STATS;
+  bbs_login_schedule_poll();
+}
+
+static void
 bbs_login_begin_handle(void)
 {
   bbs_transport_buf_discard();
@@ -496,13 +505,12 @@ bbs_login_begin_handle(void)
 static void
 login_stats_continue(void)
 {
-  bbs_status.login = 1;
   bbs_record_last_caller();
   telnetd_discard_pending_rx();
 #ifndef BBS_SERIAL_TRANSPORT
   bbs_transport_flush_outbound();
 #endif
-  if(bbs_bank_load(BBS_BANK_ID_MSG) != 0u) {
+  if(bbs_bank_ensure_stats() != 0u) {
     bbs_bank_run_sys_stats();
   } else {
     shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
@@ -531,6 +539,14 @@ PROCESS_THREAD(bbs_login_process, ev, data)
       if((bbs_login_defer_flags & BBS_LOGIN_DEFER_HOME) != 0u) {
         bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_HOME;
         bbs_login_begin_handle();
+        if(bbs_login_defer_flags != 0u) {
+          bbs_login_schedule_poll();
+        }
+        continue;
+      }
+      if((bbs_login_defer_flags & BBS_LOGIN_DEFER_STATS) != 0u) {
+        bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_STATS;
+        login_stats_continue();
         if(bbs_login_defer_flags != 0u) {
           bbs_login_schedule_poll();
         }
@@ -640,9 +656,8 @@ PROCESS_THREAD(bbs_login_process, ev, data)
 
           case STATUS_PASSWD: {
             if(! strcmp(input->data1, bbs_user.user_pwd)) {
-
-				login_stats_continue();
-
+              bbs_status.login = 1;
+              bbs_login_defer_stats_screen();
             } else {
               shell_output_str(NULL, "wrong password.", "");
               shell_output_str(NULL, BBS_HELP_STRING, "");
@@ -669,10 +684,8 @@ PROCESS_THREAD(bbs_login_process, ev, data)
 
             if(login_token_eq(input->data1, 'y')) {
               bbs_save_user();
-
-				login_stats_continue();
-
-              //bbs_login();
+              bbs_status.login = 1;
+              bbs_login_defer_stats_screen();
             }
             else{
               shell_prompt("\n\rhandle: ");
@@ -943,7 +956,8 @@ bbs_show_menu(void)
 static unsigned char
 bbs_bank_uses_set_op(unsigned char bank_id)
 {
-  return (bank_id == BBS_BANK_ID_XFER || bank_id == BBS_BANK_ID_XMODEM) ? 1u : 0u;
+  return (bank_id == BBS_BANK_ID_XFER || bank_id == BBS_BANK_ID_XMODEM ||
+      bank_id == BBS_BANK_ID_STATS) ? 1u : 0u;
 }
 
 static unsigned char
@@ -956,9 +970,6 @@ bbs_msg_uses_set_op(const char *cmd, int len)
   case 'r':
   case '+':
   case '-':
-  case 'x':
-  case 'y':
-  case 'i':
   case '\r':
   case '\n':
     return 1u;
@@ -982,6 +993,7 @@ bbs_command_bank_id(const char *cmd, int len)
     case 'x':
     case 'y':
     case 'i':
+      return BBS_BANK_ID_STATS;
     case '#':
     case 'r':
     case 's':
@@ -1011,6 +1023,8 @@ bbs_bank_unavailable_msg(unsigned char bank_id)
     return "\n\rpost bank unavailable\n\r";
   case BBS_BANK_ID_MSG:
     return "\n\rmessage bank unavailable\n\r";
+  case BBS_BANK_ID_STATS:
+    return "\n\rstats bank unavailable\n\r";
   case BBS_BANK_ID_XMODEM:
     return "\n\rdownload/upload bank unavailable\n\r";
   default:
@@ -1125,8 +1139,9 @@ start_command(char *commandline, struct shell_command *child)
     if(bbs_bank_uses_set_op(bbs_command_bank_id(commandline, command_len)) != 0u ||
        (bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_MSG &&
         bbs_msg_uses_set_op(commandline, command_len) != 0u)) {
-      if(bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_MSG &&
-          bbs_msg_uses_set_op(commandline, command_len) != 0u) {
+      if((bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_MSG &&
+          bbs_msg_uses_set_op(commandline, command_len) != 0u) ||
+          bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_STATS) {
         shell_skip_prompt = 1u;
       }
       bbs_bank_set_op(commandline);
@@ -1483,7 +1498,7 @@ shell_stop(void)
   bbs_login_defer_flags = 0u;
   bbs_unlock();
   killall();
-  bbs_bank_unload();
+  (void)bbs_bank_ensure_stats();
 }
 /*---------------------------------------------------------------------------*/
 void
