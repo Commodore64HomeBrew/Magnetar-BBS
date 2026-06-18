@@ -20,6 +20,7 @@ read_msg(unsigned short num)
     char sub_num_prefix[BBS_FILE_PATH_BUFLEN];
     char file[12];
 
+    bbs_transport_buf_discard();
     shell_output_str(NULL, PETSCII_LOWER, PETSCII_WHITE);
 
     bbs_fmt_msg_id(file, bbs_status.board_id, num);

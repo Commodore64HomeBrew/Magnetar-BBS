@@ -21,17 +21,20 @@ bbs_msg_set_op(const char *cmd)
 {
   unsigned short num;
   unsigned char c;
+  unsigned char acted;
 
   if(cmd == NULL || cmd[0] == '\0') {
     return;
   }
   c = (unsigned char)cmd[0];
+  acted = 0u;
   switch(c) {
   case 'r':
     num = bbs_usrstats.current_msg[bbs_status.board_id] - 1u;
     if(num > 0u) {
       --bbs_usrstats.current_msg[bbs_status.board_id];
       read_msg(num);
+      acted = 1u;
     }
     break;
   case '\r':
@@ -40,6 +43,7 @@ bbs_msg_set_op(const char *cmd)
     if(num <= bbs_config.msg_id[bbs_status.board_id]) {
       ++bbs_usrstats.current_msg[bbs_status.board_id];
       read_msg(num);
+      acted = 1u;
     }
     break;
   case '+':
@@ -47,6 +51,7 @@ bbs_msg_set_op(const char *cmd)
       ++bbs_status.board_id;
       set_prompt();
       bbs_sub_banner();
+      acted = 1u;
     }
     break;
   case '-':
@@ -54,19 +59,26 @@ bbs_msg_set_op(const char *cmd)
       --bbs_status.board_id;
       set_prompt();
       bbs_sub_banner();
+      acted = 1u;
     }
     break;
   case 'x':
     bbs_msg_system_stats();
+    acted = 1u;
     break;
   case 'y':
     bbs_msg_user_stats();
+    acted = 1u;
     break;
   case 'i':
     bbs_msg_info();
+    acted = 1u;
     break;
   default:
     break;
+  }
+  if(acted != 0u) {
+    shell_prompt(bbs_status.prompt);
   }
 }
 

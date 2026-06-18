@@ -52,12 +52,11 @@ SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_proc
 
 /* Defer disk/bank work out of telnetd_appcall and deep login stack frames. */
 static unsigned char bbs_login_defer_flags;
+static unsigned char shell_skip_prompt;
 #define BBS_LOGIN_DEFER_HOME    0x01u /* login banner after encoding choice (no bank load) */
-#define BBS_LOGIN_DEFER_STATS   0x02u /* msg bank + stats chart after password */
 #define BBS_LOGIN_DEFER_FINISH  0x04u
 
 static void bbs_login_schedule_poll(void);
-static void bbs_login_defer_stats_screen(void);
 static void bbs_login_begin_handle(void);
 
 /* post_synch from telnet would re-enter login/bank PT; defer with process_post.
@@ -312,6 +311,7 @@ void bbs_lock(void)
     save_stats();
     //bbs_status.login=0;
   }
+  bbs_login_defer_flags = 0u;
   bbs_locked=1;
   bbs_defaults();
   process_start(&bbs_timer_process, NULL);
@@ -447,10 +447,6 @@ void bbs_login()
 	//Increment the dialy calls total:
 	++bbs_sysstats.daily_calls[bbs_sysstats.day_ptr];
 
-	if(bbs_bank_id_active() != BBS_BANK_ID_MSG && bbs_bank_ensure_msg() == 0u) {
-		shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
-	}
-
 	//Display the Centronian logo and system stats:
 	bbs_banner(board.sys_prefix, BBS_BANNER_LOGO, bbs_status.encoding_suffix, board.sys_device, 0);
 
@@ -487,13 +483,6 @@ bbs_login_schedule_poll(void)
 }
 
 static void
-bbs_login_defer_stats_screen(void)
-{
-  bbs_login_defer_flags |= BBS_LOGIN_DEFER_STATS;
-  bbs_login_schedule_poll();
-}
-
-static void
 bbs_login_begin_handle(void)
 {
   bbs_transport_buf_discard();
@@ -507,13 +496,13 @@ bbs_login_begin_handle(void)
 static void
 login_stats_continue(void)
 {
+  bbs_status.login = 1;
   bbs_record_last_caller();
   telnetd_discard_pending_rx();
 #ifndef BBS_SERIAL_TRANSPORT
   bbs_transport_flush_outbound();
 #endif
-  if(bbs_bank_id_active() == BBS_BANK_ID_MSG ||
-      bbs_bank_ensure_msg() != 0u) {
+  if(bbs_bank_load(BBS_BANK_ID_MSG) != 0u) {
     bbs_bank_run_sys_stats();
   } else {
     shell_output_str(NULL, "\r\n\x96stats unavailable\r\n", "");
@@ -542,14 +531,6 @@ PROCESS_THREAD(bbs_login_process, ev, data)
       if((bbs_login_defer_flags & BBS_LOGIN_DEFER_HOME) != 0u) {
         bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_HOME;
         bbs_login_begin_handle();
-        if(bbs_login_defer_flags != 0u) {
-          bbs_login_schedule_poll();
-        }
-        continue;
-      }
-      if((bbs_login_defer_flags & BBS_LOGIN_DEFER_STATS) != 0u) {
-        bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_STATS;
-        login_stats_continue();
         if(bbs_login_defer_flags != 0u) {
           bbs_login_schedule_poll();
         }
@@ -660,7 +641,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
           case STATUS_PASSWD: {
             if(! strcmp(input->data1, bbs_user.user_pwd)) {
 
-				bbs_login_defer_stats_screen();
+				login_stats_continue();
 
             } else {
               shell_output_str(NULL, "wrong password.", "");
@@ -689,7 +670,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             if(login_token_eq(input->data1, 'y')) {
               bbs_save_user();
 
-				bbs_login_defer_stats_screen();
+				login_stats_continue();
 
               //bbs_login();
             }
@@ -822,7 +803,6 @@ PROCESS_THREAD(movie_process, ev, data)
       shell_output_str(NULL, "\r\n\x96movie open failed\r\n", "");
       bordercolor(2);
       poke(0xd011, peek(0xd011) | 0x10);
-      (void)bbs_bank_home();
     } else {
 #ifndef BBS_SERIAL_TRANSPORT
       bbs_transport_flush_outbound();
@@ -845,9 +825,6 @@ PROCESS_THREAD(movie_process, ev, data)
       bbs_stream_set_eof_process(NULL);
       bordercolor(2);
       poke(0xd011, peek(0xd011) | 0x10);
-      if(bbs_bank_home() == 0u) {
-        shell_output_str(NULL, "\r\n\x96message bank unavailable\r\n", "");
-      }
     }
   }
 
@@ -1148,6 +1125,10 @@ start_command(char *commandline, struct shell_command *child)
     if(bbs_bank_uses_set_op(bbs_command_bank_id(commandline, command_len)) != 0u ||
        (bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_MSG &&
         bbs_msg_uses_set_op(commandline, command_len) != 0u)) {
+      if(bbs_command_bank_id(commandline, command_len) == BBS_BANK_ID_MSG &&
+          bbs_msg_uses_set_op(commandline, command_len) != 0u) {
+        shell_skip_prompt = 1u;
+      }
       bbs_bank_set_op(commandline);
       command_kill(child);
       c = NULL;
@@ -1373,9 +1354,11 @@ PROCESS_THREAD(shell_process, ev, data)
       shell_stop();
       //bbs_unlock();
     }
-    if(bbs_status.status > STATUS_HANDLE && front_process == &shell_process) {
+    if(!shell_skip_prompt && bbs_status.status > STATUS_HANDLE &&
+        front_process == &shell_process) {
       shell_prompt(bbs_status.prompt);
     }
+    shell_skip_prompt = 0u;
   }
   
   PROCESS_END();
@@ -1497,11 +1480,10 @@ void
 shell_stop(void)
 {
   //log_message("\x9e", "shell stop");
+  bbs_login_defer_flags = 0u;
   bbs_unlock();
   killall();
-  if(bbs_bank_home() == 0u) {
-    log_message("\x96", "msg bank");
-  }
+  bbs_bank_unload();
 }
 /*---------------------------------------------------------------------------*/
 void

@@ -52,13 +52,12 @@ bbs_api_init(void)
   BBS_SHARED->sig1 = 'S';
   BBS_SHARED->abi_major = BBS_ABI_MAJOR;
   BBS_SHARED->abi_minor = BBS_ABI_MINOR;
-  BBS_SHARED->active_bank = 0u;
   BBS_SHARED->s_buf = &buf;
   BBS_SHARED->s_shell_ev = &shell_event_input;
 }
 
-static unsigned char
-bbs_bank_load_ex(unsigned char bank_id, unsigned char reset_transport)
+unsigned char
+bbs_bank_load(unsigned char bank_id)
 {
   unsigned int total;
   unsigned int n;
@@ -76,8 +75,6 @@ bbs_bank_load_ex(unsigned char bank_id, unsigned char reset_transport)
   if(bbs_bank_loaded != 0u) {
     bbs_bank_unload();
   }
-
-  bbs_api_init();
 
   if(cbm_open(BBS_FILE_CHANNEL, board.sys_device, BBS_FILE_CHANNEL,
       filename) != 0u) {
@@ -112,16 +109,8 @@ bbs_bank_load_ex(unsigned char bank_id, unsigned char reset_transport)
     bbs_bank_forget();
     return 0u;
   }
-  if(reset_transport != 0u) {
-    bbs_transport_buf_reset();
-  }
+  bbs_transport_buf_reset();
   return 1u;
-}
-
-unsigned char
-bbs_bank_load(unsigned char bank_id)
-{
-  return bbs_bank_load_ex(bank_id, 1u);
 }
 
 void
@@ -142,24 +131,6 @@ bbs_bank_forget(void)
   BBS_SHARED->active_bank = 0u;
   bbs_bank_loaded = 0u;
   bbs_bank_cur_id = 0u;
-}
-
-unsigned char
-bbs_bank_home(void)
-{
-  return bbs_bank_load_ex(BBS_BANK_ID_MSG, 0u);
-}
-
-unsigned char
-bbs_bank_ensure_msg(void)
-{
-  if(bbs_bank_id_active() == BBS_BANK_ID_MSG) {
-    return 1u;
-  }
-  if(bbs_bank_active() != 0u) {
-    return bbs_bank_load(BBS_BANK_ID_MSG);
-  }
-  return bbs_bank_home();
 }
 
 unsigned char
@@ -201,7 +172,8 @@ bbs_bank_run_sys_stats(void)
 {
   bbs_bank_void_fn fn;
 
-  if(bbs_bank_loaded != 0u) {
+  if(bbs_bank_loaded != 0u &&
+      bbs_bank_entry_is_jmp(BBS_BANK_RUN_STATS_OFF) != 0u) {
     fn = (bbs_bank_void_fn)BBS_BANK_RUN_STATS_ADDR;
     fn();
   }
