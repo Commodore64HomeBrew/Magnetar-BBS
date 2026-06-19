@@ -34,6 +34,32 @@ SCR_LAST = 0x07E7
 XMODEM_RBUF_SIZE = 132
 XFER_RX_SIZE = 128
 
+# Must match link order in bbs-core-api.S / bbs-api.inc
+RESAPI_SYMBOLS = (
+    "_shell_output_str",
+    "_shell_prompt",
+    "_shell_register_command",
+    "_shell_unregister_command",
+    "_buf_append",
+    "_buf_putc_raw",
+    "_bbs_banner",
+    "_log_message",
+    "_file_path",
+    "_bbs_transport_poll",
+    "_bbs_transport_flush_outbound",
+    "_bbs_transport_buf_reset",
+    "_bbs_transport_buf_discard",
+    "_bbs_scr_layout_output",
+    "_bbs_scr_layout_xfer",
+    "_bbs_stream_begin",
+    "_set_prompt",
+    "_update_time",
+    "_bbs_path_sys_at",
+    "_clock_time",
+    "_bbs_transport_poll_send",
+    "_bbs_serial_flush_outbound",
+)
+
 
 def parse_segments(path, names):
     segs = {}
@@ -119,8 +145,26 @@ def check_bank_header(bin_path, bank_id):
             )
 
 
-def check_resapi_binary(bin_path):
+def parse_symbol_addrs(map_path):
+    """Parse ld65 map global symbol addresses (first occurrence wins)."""
+    addrs = {}
+    sym = re.compile(r"(_\w+)\s+([0-9A-Fa-f]{4,6})\s")
+    with open(map_path, encoding="ascii", errors="replace") as f:
+        for line in f:
+            for m in sym.finditer(line):
+                name = m.group(1)
+                if name not in addrs:
+                    addrs[name] = int(m.group(2), 16)
+    return addrs
+
+
+def check_resapi_binary(bin_path, map_path):
     """RESAPI must appear in the loaded PRG image (map address alone is not enough)."""
+    if len(RESAPI_SYMBOLS) != BBS_API_STUB_COUNT:
+        raise SystemExit(
+            f"RESAPI_SYMBOLS count {len(RESAPI_SYMBOLS)} != {BBS_API_STUB_COUNT}"
+        )
+    sym_addrs = parse_symbol_addrs(map_path)
     try:
         with open(bin_path, "rb") as f:
             data = f.read()
@@ -141,22 +185,28 @@ def check_resapi_binary(bin_path):
             f"{bin_path}: RESAPI overwrote constructor table at $A0E4"
         )
     chunk = data[off : off + BBS_API_SIZE]
-    tgt_out = jmp_target(chunk, 0)
-    tgt_reg = jmp_target(chunk, 6)
-    if tgt_out is None or tgt_reg is None:
-        raise SystemExit(
-            f"{bin_path}: RESAPI at ${BBS_API_BASE:04X} missing JMP stubs in PRG"
-        )
-    if tgt_out != 0x0F49 or tgt_reg != 0x1024:
-        raise SystemExit(
-            f"{bin_path}: RESAPI stub mismatch at ${BBS_API_BASE:04X} "
-            f"(output ${tgt_out:04X}, register ${tgt_reg:04X})"
-        )
+    for i, name in enumerate(RESAPI_SYMBOLS):
+        stub_off = i * BBS_API_STUB_SIZE
+        tgt = jmp_target(chunk, stub_off)
+        if tgt is None:
+            raise SystemExit(
+                f"{bin_path}: RESAPI stub {i} ({name}) at "
+                f"${BBS_API_BASE + stub_off:04X} not JMP"
+            )
+        expect = sym_addrs.get(name)
+        if expect is None:
+            raise SystemExit(f"{map_path}: missing symbol {name} for RESAPI stub {i}")
+        if tgt != expect:
+            raise SystemExit(
+                f"{bin_path}: RESAPI stub {i} ({name}) at "
+                f"${BBS_API_BASE + stub_off:04X} JMP ${tgt:04X}, "
+                f"expected ${expect:04X} from map"
+            )
 
 
 def check_core(map_path, bin_path):
     check_screen_layout()
-    check_resapi_binary(bin_path)
+    check_resapi_binary(bin_path, map_path)
 
     segs = parse_segments(
         map_path, ["BSS", "SHARED", "LOWBSS", "CODE", "DATA", "INIT", "ONCE", "RESAPI"]
