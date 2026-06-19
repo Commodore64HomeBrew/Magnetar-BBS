@@ -4,7 +4,8 @@
 #include "bbs-defs.h"
 
 /*
- * Bank overlays at $B000 (8 KiB). Core loads bankN.prg via bbs_bank_load().
+ * Bank overlays at $B000 (8 KiB). Core loads bankN via bbs_bank_load()
+ * (files on //x/ are bankN.prg; DOS hides the .prg type in open paths).
  * Banks call core through fixed RESAPI stubs at $A210 (bbs-api.h).
  *
  * Policy:

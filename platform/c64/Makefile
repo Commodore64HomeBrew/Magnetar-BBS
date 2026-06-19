@@ -43,7 +43,7 @@ endif
 
 all: $(CONTIKI_PROJECT) banks memcheck
 
-# Banks: bankN.prg overlays at $B000 (deploy to //x/ on sys device).
+# Banks: bankN.prg on host; loader opens //x:bankN (no extension).
 banks: bank1.prg bank2.prg bank3.prg bank4.prg bank5.prg
 
 .PHONY: memcheck

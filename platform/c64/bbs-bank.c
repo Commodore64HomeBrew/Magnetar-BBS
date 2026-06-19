@@ -66,11 +66,11 @@ static const char *
 bbs_bank_filename(unsigned char bank_id)
 {
   switch(bank_id) {
-  case BBS_BANK_ID_XFER:   return "bank1.prg";
-  case BBS_BANK_ID_POST:   return "bank2.prg";
-  case BBS_BANK_ID_MSG:    return "bank3.prg";
-  case BBS_BANK_ID_STATS:  return "bank4.prg";
-  case BBS_BANK_ID_XMODEM: return "bank5.prg";
+  case BBS_BANK_ID_XFER:   return "bank1";
+  case BBS_BANK_ID_POST:   return "bank2";
+  case BBS_BANK_ID_MSG:    return "bank3";
+  case BBS_BANK_ID_STATS:  return "bank4";
+  case BBS_BANK_ID_XMODEM: return "bank5";
   default:                 return NULL;
   }
 }
