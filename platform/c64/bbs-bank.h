@@ -4,8 +4,9 @@
 #include "bbs-defs.h"
 
 /*
- * Bank overlays at $B000 (8 KiB). Core loads bankN via bbs_bank_load()
- * (files on //x/ are bankN.prg; DOS hides the .prg type in open paths).
+ * Bank overlays at $B000 (8 KiB). Core loads bankN from the sys device
+ * root (same volume as magbbs; not under //x/). Files are bankN.prg on disk;
+ * open paths omit the hidden .prg type.
  * Banks call core through fixed RESAPI stubs at $A210 (bbs-api.h).
  *
  * Policy:

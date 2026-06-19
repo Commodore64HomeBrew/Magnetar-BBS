@@ -3,15 +3,26 @@
 #include "bbs-resident.h"
 #include "bbs-shell.h"
 #include "bbs-telnetd.h"
-#include "bbs-file.h"
 #include <cbm.h>
 #include <string.h>
+
+#define BBS_BANK_LOAD_DEBUG 1
 
 extern BBS_BUFFER buf;
 extern int shell_event_input;
 
 static unsigned char bbs_bank_loaded;
 static unsigned char bbs_bank_cur_id;
+
+#if BBS_BANK_LOAD_DEBUG
+static void
+bbs_bank_dbg_show(const char *path, const char *note)
+{
+  shell_output_str(NULL, "\r\n[dbg] ", (char *)note);
+  shell_output_str(NULL, " path=", (char *)path);
+  bbs_transport_flush_outbound();
+}
+#endif
 
 typedef unsigned char (*bbs_bank_init_fn)(void);
 typedef void (*bbs_bank_void_fn)(void);
@@ -93,7 +104,6 @@ bbs_bank_load(unsigned char bank_id)
   unsigned int n;
   unsigned char *dst;
   const char *filename;
-  char path[40];
   bbs_bank_init_fn init_fn;
 
   filename = bbs_bank_filename(bank_id);
@@ -107,9 +117,14 @@ bbs_bank_load(unsigned char bank_id)
     bbs_bank_unload();
   }
 
-  bbs_path_sys_colon(path, filename);
+#if BBS_BANK_LOAD_DEBUG
+  bbs_bank_dbg_show(filename, "load try");
+#endif
   if(cbm_open(BBS_FILE_CHANNEL, board.sys_device, BBS_FILE_CHANNEL,
-      path) != 0u) {
+      filename) != 0u) {
+#if BBS_BANK_LOAD_DEBUG
+    bbs_bank_dbg_show(filename, "OPEN FAIL");
+#endif
     return 0u;
   }
   dst = (unsigned char *)BBS_BANK_BASE;
@@ -125,6 +140,9 @@ bbs_bank_load(unsigned char bank_id)
   cbm_close(BBS_FILE_CHANNEL);
 
   if(total < BBS_BANK_HDR_SIZE || bbs_bank_header_ok(bank_id) == 0u) {
+#if BBS_BANK_LOAD_DEBUG
+    bbs_bank_dbg_show(filename, "HDR FAIL");
+#endif
     return 0u;
   }
   bbs_bank_clear_bss(total);
@@ -135,9 +153,15 @@ bbs_bank_load(unsigned char bank_id)
   bbs_bank_cur_id = bank_id;
 
   if(init_fn() == 0u) {
+#if BBS_BANK_LOAD_DEBUG
+    bbs_bank_dbg_show(filename, "INIT FAIL");
+#endif
     bbs_bank_forget();
     return 0u;
   }
+#if BBS_BANK_LOAD_DEBUG
+  bbs_bank_dbg_show(filename, "OK");
+#endif
   bbs_transport_buf_reset();
   return 1u;
 }
