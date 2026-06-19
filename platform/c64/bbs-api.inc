@@ -1,7 +1,7 @@
-; Fixed core API entry points (RESAPI segment at $A0E4). Banks JSR these addresses.
+; Fixed core API entry points (RESAPI segment at $A210). Banks JSR these addresses.
 ; Packed 3-byte JMP stubs — must match bbs-core-api.S link order.
 
-BBS_API_BASE            = $A0E4
+BBS_API_BASE            = $A210
 
 BBS_API_SHELL_OUTPUT    = BBS_API_BASE + $00
 BBS_API_SHELL_PROMPT    = BBS_API_BASE + $03

@@ -1,4 +1,4 @@
-; Packed JMP stubs for bank overlays. Segment RESAPI links at $A0E4.
+; Packed JMP stubs for bank overlays. Segment RESAPI links at $A210.
 .include "bbs-api.inc"
 
 .import _shell_output_str, _shell_prompt
@@ -14,7 +14,7 @@
 
 .segment "RESAPI"
 
-        .org $A0E4
+        .org $A210
 
         jmp _shell_output_str
         jmp _shell_prompt

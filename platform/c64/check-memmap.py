@@ -7,7 +7,7 @@ import sys
 CORE_HIMEM = 0xB000
 CORE_STACK = 0x0400
 CORE_MIN_GAP = 200
-BBS_API_BASE = 0xA0E4
+BBS_API_BASE = 0xA210
 BBS_SHARED_BASE = 0xA280
 BBS_SHARED_SIZE = 0x0347
 BBS_SHARED_STRUCT_MIN = 0x0347  # sizeof(bbs_shared_t); keep BBS_SHARED_SIZE >= this
@@ -134,6 +134,11 @@ def check_resapi_binary(bin_path):
         raise SystemExit(
             f"{bin_path}: RESAPI ${BBS_API_BASE:04X} not in PRG image "
             f"(load ${load_addr:04X}, file {len(data)} B)"
+        )
+    ctor_off = 0xA0E4 - load_addr + 2
+    if 0 <= ctor_off < len(data) and data[ctor_off] == 0x4C:
+        raise SystemExit(
+            f"{bin_path}: RESAPI overwrote constructor table at $A0E4"
         )
     chunk = data[off : off + BBS_API_SIZE]
     tgt_out = jmp_target(chunk, 0)
