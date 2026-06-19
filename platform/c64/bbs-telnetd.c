@@ -1204,6 +1204,9 @@ get_char(uint8_t c)
 		TELWRAP_LINE_RESET();
 		if(s.bufptr > 0u) {
 		  shell_input(s.buf, s.bufptr);
+		} else if(bbs_status.status == STATUS_LOCK) {
+		  set_prompt();
+		  shell_prompt(bbs_status.prompt);
 		}
 		s.bufptr = 0;
 		s.last_space_at = (unsigned char)TELNETD_LAST_SPACE_NONE;

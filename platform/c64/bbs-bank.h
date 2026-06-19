@@ -12,7 +12,7 @@
  * Policy:
  * - After password: load bank 4 (stats) if not already active; run login chart.
  * - At prompt: no bank load until a routed command needs that bank.
- * - On disconnect: load bank 4 (stats) if not already active.
+ * - On disconnect: unload any active bank overlay.
  * - bbs_bank_load() skips disk/init when the requested bank is already active.
  */
 

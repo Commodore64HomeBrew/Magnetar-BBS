@@ -1481,7 +1481,7 @@ shell_stop(void)
   bbs_login_defer_flags = 0u;
   bbs_unlock();
   killall();
-  (void)bbs_bank_ensure_stats();
+  bbs_bank_unload();
 }
 /*---------------------------------------------------------------------------*/
 void
