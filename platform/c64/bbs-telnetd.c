@@ -347,6 +347,10 @@ bbs_transport_buf_discard(void)
   buf.head = 0u;
   buf.used = 0u;
   s.numsent = 0;
+#ifndef BBS_SERIAL_TRANSPORT
+  telnetd_tcp_tx_pending = 0u;
+  telnetd_tcp_stream_unacked = 0u;
+#endif
   TELWRAP_LINE_RESET();
 }
 
@@ -829,7 +833,6 @@ telnetd_serial_tx(void)
   }
   s.numsent = sd_len;
   if(s.numsent > 0u) {
-    timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
     buf_ack_sent((unsigned int)s.numsent);
   }
 }
@@ -1468,7 +1471,6 @@ telnetd_appcall(void *ts)
       }
     }
     if(uip_acked()) {
-      timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
       if(telnetd_tcp_stream_unacked != 0u) {
         telnetd_tcp_stream_unacked = 0u;
       } else if(telnetd_tcp_tx_pending != 0u) {
@@ -1549,9 +1551,6 @@ telnetd_appcall(void *ts)
           s.numsent = sd_len;
           telnetd_tcp_tx_pending = 1u;
         }
-      }
-      if(s.numsent > 0u) {
-        timer_set(&silence_timer, BBS_IDLE_TIMEOUT);
       }
     }
     if(uip_poll()) {

@@ -30,6 +30,8 @@ banner_load_file_payload(unsigned short ptr, unsigned char read_layout)
 {
   unsigned char *dst;
   unsigned int room;
+  unsigned int dst0;
+  unsigned int contig;
   int n;
 
   if(read_layout != 0u) {
@@ -39,7 +41,12 @@ banner_load_file_payload(unsigned short ptr, unsigned char read_layout)
     } else {
       room = 0u;
     }
-    dst = &buf.bufmem[ptr];
+    dst0 = (unsigned int)ptr;
+    contig = buf.size - dst0;
+    if(room > contig) {
+      room = contig;
+    }
+    dst = &buf.bufmem[dst0];
     n = cbm_read(10, dst, (unsigned short)room);
     if(n < 0) {
       n = 0;
@@ -47,7 +54,7 @@ banner_load_file_payload(unsigned short ptr, unsigned char read_layout)
     if(bbs_status.encoding == 1) {
       petscii_to_ascii((char *)dst, (unsigned int)(n > 0 ? n : 0));
     }
-    buf.used = (unsigned int)ptr + (unsigned int)n;
+    buf.used += (unsigned int)n;
     if(buf_free_bytes() >= 2u) {
       (void)buf_putc_raw(ISO_cr);
       (void)buf_putc_raw(ISO_nl);
@@ -92,13 +99,16 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
 #ifdef BBS_SERIAL_TRANSPORT
   bbs_serial_banner_begin();
 #endif
-  buf_compact();
+  if(read_layout == 0u) {
+    buf_compact();
 #ifdef BBS_SERIAL_TRANSPORT
-  /* Single cbm_read is capped by free ring space; push pending TX out first. */
-  bbs_serial_drain_wire();
+    /* Single cbm_read is capped by free ring space; push pending TX out first. */
+    bbs_serial_drain_wire();
 #endif
-  /* After compact head is 0; append offset is buf.used (same as f362414). */
-  ptr = (unsigned short)buf.used;
+    ptr = (unsigned short)buf.used;
+  } else {
+    ptr = (unsigned short)((buf.head + buf.used) % buf.size);
+  }
 
   sprintf(file, "%s:%s%s", filePrefix, szBannerFile, fileSuffix);
 
@@ -119,7 +129,7 @@ void bbs_banner(unsigned char filePrefix[20], unsigned char szBannerFile[12], un
   cbm_close(10);
 
 
-  if(wordWrap == 1u) {
+  if(wordWrap == 1u && read_layout == 0u) {
     int last_spc;
 
     width = bbs_status.width;
