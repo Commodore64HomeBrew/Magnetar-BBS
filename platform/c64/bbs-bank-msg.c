@@ -42,6 +42,9 @@ bbs_msg_set_op(const char *cmd)
       ++bbs_usrstats.current_msg[bbs_status.board_id];
       read_msg(num);
       acted = 1u;
+    } else {
+      set_prompt();
+      acted = 1u;
     }
     break;
   case '+':

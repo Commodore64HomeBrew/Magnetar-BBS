@@ -54,9 +54,11 @@ SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_proc
 static unsigned char bbs_login_defer_flags;
 static unsigned char shell_skip_prompt;
 #define BBS_LOGIN_DEFER_HOME    0x01u /* login banner after encoding choice (no bank load) */
-#define BBS_LOGIN_DEFER_FINISH  0x02u
+#define BBS_LOGIN_DEFER_STATS   0x02u /* stats bank + login chart after password */
+#define BBS_LOGIN_DEFER_FINISH  0x04u /* bbs_login() home screen after stats chart */
 
 static void bbs_login_schedule_poll(void);
+static void bbs_login_defer_stats_screen(void);
 static void bbs_login_begin_handle(void);
 
 /* post_synch from telnet would re-enter login/bank PT; defer with process_post.
@@ -483,6 +485,13 @@ bbs_login_schedule_poll(void)
 }
 
 static void
+bbs_login_defer_stats_screen(void)
+{
+  bbs_login_defer_flags |= BBS_LOGIN_DEFER_STATS;
+  bbs_login_schedule_poll();
+}
+
+static void
 bbs_login_begin_handle(void)
 {
   bbs_transport_buf_discard();
@@ -530,6 +539,14 @@ PROCESS_THREAD(bbs_login_process, ev, data)
       if((bbs_login_defer_flags & BBS_LOGIN_DEFER_HOME) != 0u) {
         bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_HOME;
         bbs_login_begin_handle();
+        if(bbs_login_defer_flags != 0u) {
+          bbs_login_schedule_poll();
+        }
+        continue;
+      }
+      if((bbs_login_defer_flags & BBS_LOGIN_DEFER_STATS) != 0u) {
+        bbs_login_defer_flags &= (unsigned char)~BBS_LOGIN_DEFER_STATS;
+        login_stats_continue();
         if(bbs_login_defer_flags != 0u) {
           bbs_login_schedule_poll();
         }
@@ -640,7 +657,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
           case STATUS_PASSWD: {
             if(! strcmp(input->data1, bbs_user.user_pwd)) {
               bbs_status.login = 1;
-              login_stats_continue();
+              bbs_login_defer_stats_screen();
             } else {
               shell_output_str(NULL, "wrong password.", "");
               shell_output_str(NULL, BBS_HELP_STRING, "");
@@ -668,7 +685,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             if(login_token_eq(input->data1, 'y')) {
               bbs_save_user();
               bbs_status.login = 1;
-              login_stats_continue();
+              bbs_login_defer_stats_screen();
             }
             else{
               shell_prompt("\n\rhandle: ");
@@ -1481,13 +1498,8 @@ shell_stop(void)
 {
   //log_message("\x9e", "shell stop");
   bbs_login_defer_flags = 0u;
-  if(bbs_status.login == 1) {
-    save_stats();
-    bbs_status.login = 0;
-  }
-  killall();
   bbs_unlock();
-  bbs_bank_unload();
+  killall();
 }
 /*---------------------------------------------------------------------------*/
 void

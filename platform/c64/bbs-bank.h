@@ -10,9 +10,10 @@
  * Banks call core through fixed RESAPI stubs at $A210 (bbs-api.h).
  *
  * Policy:
- * - After password: load bank 4 (stats) if not already active; run login chart.
- * - At prompt: no bank load until a routed command needs that bank.
- * - On disconnect: unload any active bank overlay.
+ * - After password: load bank 4 (stats) if needed; run login chart; keep stats loaded at prompt.
+ * - At prompt: bank switch only when a routed command needs another bank (bbs_bank_load).
+ * - On disconnect: leave the active bank overlay in place (no unload/deinit here).
+ * - Next login: bbs_bank_load() unloads any stale bank before loading stats if needed.
  * - bbs_bank_load() skips disk/init when the requested bank is already active.
  */
 
