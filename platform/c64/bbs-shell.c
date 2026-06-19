@@ -836,9 +836,6 @@ shell_do_quit(void)
   unsigned char prefix[20];
   unsigned char enc0;
 
-  /* Release bank overlay before banner I/O (channel 10) and deinit shell hooks. */
-  bbs_bank_unload();
-
   enc0 = (unsigned char)(bbs_status.encoding == 0);
   if(enc0 != 0u) {
     shell_output_str(NULL, "\x8e", "");
@@ -855,18 +852,12 @@ shell_do_quit(void)
   }
 
   log_message("\x05logout: ", bbs_user.user_name);
-  if(bbs_status.login == 1) {
-    save_stats();
-    bbs_status.login = 0;
-  }
 #ifndef BBS_SERIAL_TRANSPORT
   bbs_transport_flush_outbound();
 #else
   bbs_serial_flush_outbound();
 #endif
-  bbs_login_defer_flags = 0u;
-  killall();
-  bbs_unlock();
+  shell_stop();
 }
 
 /*---------------------------------------------------------------------------*/
@@ -1490,9 +1481,13 @@ shell_stop(void)
 {
   //log_message("\x9e", "shell stop");
   bbs_login_defer_flags = 0u;
+  if(bbs_status.login == 1) {
+    save_stats();
+    bbs_status.login = 0;
+  }
   killall();
-  bbs_bank_unload();
   bbs_unlock();
+  bbs_bank_unload();
 }
 /*---------------------------------------------------------------------------*/
 void
