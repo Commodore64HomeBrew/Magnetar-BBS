@@ -7,7 +7,7 @@
  * Bank overlays at $B000 (8 KiB). Core loads bankN from the sys device
  * root (same volume as magbbs; not under //x/). Files are bankN.prg on disk;
  * open paths omit the hidden .prg type.
- * Banks call core through fixed RESAPI stubs at $A210 (bbs-api.h).
+ * Banks call core through fixed RESAPI stubs at $A0E4 (bbs-api.h).
  *
  * Policy:
  * - After password: load bank 4 (stats) if not already active; run login chart.

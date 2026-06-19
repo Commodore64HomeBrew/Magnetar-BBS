@@ -6,8 +6,8 @@ import sys
 
 CORE_HIMEM = 0xB000
 CORE_STACK = 0x0400
-CORE_MIN_GAP = 256
-BBS_API_BASE = 0xA210
+CORE_MIN_GAP = 200
+BBS_API_BASE = 0xA0E4
 BBS_SHARED_BASE = 0xA280
 BBS_SHARED_SIZE = 0x0347
 BBS_SHARED_STRUCT_MIN = 0x0347  # sizeof(bbs_shared_t); keep BBS_SHARED_SIZE >= this
@@ -119,8 +119,39 @@ def check_bank_header(bin_path, bank_id):
             )
 
 
+def check_resapi_binary(bin_path):
+    """RESAPI must appear in the loaded PRG image (map address alone is not enough)."""
+    try:
+        with open(bin_path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        raise SystemExit(f"{bin_path}: {e}") from e
+    if len(data) < 2:
+        raise SystemExit(f"{bin_path}: too small for PRG")
+    load_addr = data[0] | (data[1] << 8)
+    off = BBS_API_BASE - load_addr + 2
+    if off < 0 or off + BBS_API_SIZE > len(data):
+        raise SystemExit(
+            f"{bin_path}: RESAPI ${BBS_API_BASE:04X} not in PRG image "
+            f"(load ${load_addr:04X}, file {len(data)} B)"
+        )
+    chunk = data[off : off + BBS_API_SIZE]
+    tgt_out = jmp_target(chunk, 0)
+    tgt_reg = jmp_target(chunk, 6)
+    if tgt_out is None or tgt_reg is None:
+        raise SystemExit(
+            f"{bin_path}: RESAPI at ${BBS_API_BASE:04X} missing JMP stubs in PRG"
+        )
+    if tgt_out != 0x0F49 or tgt_reg != 0x1024:
+        raise SystemExit(
+            f"{bin_path}: RESAPI stub mismatch at ${BBS_API_BASE:04X} "
+            f"(output ${tgt_out:04X}, register ${tgt_reg:04X})"
+        )
+
+
 def check_core(map_path, bin_path):
     check_screen_layout()
+    check_resapi_binary(bin_path)
 
     segs = parse_segments(
         map_path, ["BSS", "SHARED", "LOWBSS", "CODE", "DATA", "INIT", "ONCE", "RESAPI"]
@@ -141,14 +172,18 @@ def check_core(map_path, bin_path):
             f"(BSS ends ${bss_end - 1:04X}, stack ${stack_lo:04X})"
         )
 
-    if bss[0] != BBS_SHARED_BASE + BBS_SHARED_SIZE:
-        raise SystemExit(
-            f"BSSHI starts ${bss[0]:04X}, expected ${BBS_SHARED_BASE + BBS_SHARED_SIZE:04X}"
-        )
-
     shared = segs.get("SHARED")
     lowbss = segs.get("LOWBSS")
     resapi = segs.get("RESAPI")
+    if lowbss is not None and lowbss[0] != BBS_SHARED_BASE + BBS_SHARED_SIZE:
+        raise SystemExit(
+            f"LOWBSS at ${lowbss[0]:04X}, expected ${BBS_SHARED_BASE + BBS_SHARED_SIZE:04X}"
+        )
+    expected_bss = lowbss[1] if lowbss is not None else BBS_SHARED_BASE + BBS_SHARED_SIZE
+    if bss[0] != expected_bss:
+        raise SystemExit(
+            f"BSSHI starts ${bss[0]:04X}, expected ${expected_bss:04X}"
+        )
     if resapi is None:
         raise SystemExit(f"{map_path}: missing RESAPI segment")
     if resapi[0] != BBS_API_BASE:
@@ -164,9 +199,10 @@ def check_core(map_path, bin_path):
         raise SystemExit(
             f"RESAPI ends ${resapi[1] - 1:04X}, intrudes SHARED at ${BBS_SHARED_BASE:04X}"
         )
-    if lowbss is not None and lowbss[1] > BBS_API_BASE:
+    if lowbss is not None and lowbss[0] < BBS_SHARED_BASE + BBS_SHARED_SIZE:
         raise SystemExit(
-            f"LOWBSS ends ${lowbss[1] - 1:04X}, intrudes RESAPI at ${BBS_API_BASE:04X}"
+            f"LOWBSS at ${lowbss[0]:04X}, overlaps SHARED below "
+            f"${BBS_SHARED_BASE + BBS_SHARED_SIZE:04X}"
         )
     if shared is None:
         raise SystemExit(f"{map_path}: missing SHARED segment")
