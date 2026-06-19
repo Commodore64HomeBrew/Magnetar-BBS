@@ -3,6 +3,7 @@
 #include "bbs-resident.h"
 #include "bbs-shell.h"
 #include "bbs-telnetd.h"
+#include "bbs-file.h"
 #include <cbm.h>
 #include <string.h>
 
@@ -33,15 +34,43 @@ bbs_bank_entry_is_jmp(unsigned char off)
   return ((const unsigned char *)BBS_BANK_BASE)[off] == 0x4cu;
 }
 
+/* cc65 BSS is not in the .bin; zero tail RAM before init. */
+static void
+bbs_bank_clear_bss(unsigned int loaded)
+{
+  unsigned char *p;
+  unsigned int n;
+
+  if(loaded >= (unsigned int)BBS_BANK_RAM_SIZE) {
+    return;
+  }
+  p = (unsigned char *)BBS_BANK_BASE + loaded;
+  n = (unsigned int)BBS_BANK_RAM_SIZE - loaded;
+  memset(p, 0, n);
+}
+
+static unsigned char
+bbs_bank_header_ok(unsigned char bank_id)
+{
+  if(bbs_bank_sig_ok(bank_id) == 0u) {
+    return 0u;
+  }
+  if(bbs_bank_entry_is_jmp(BBS_BANK_INIT_OFF) == 0u ||
+      bbs_bank_entry_is_jmp(BBS_BANK_DEINIT_OFF) == 0u) {
+    return 0u;
+  }
+  return 1u;
+}
+
 static const char *
 bbs_bank_filename(unsigned char bank_id)
 {
   switch(bank_id) {
-  case BBS_BANK_ID_XFER:   return "bbs-bank1.bin";
-  case BBS_BANK_ID_POST:   return "bbs-bank2.bin";
-  case BBS_BANK_ID_MSG:    return "bbs-bank3.bin";
-  case BBS_BANK_ID_STATS:  return "bbs-bank4.bin";
-  case BBS_BANK_ID_XMODEM: return "bbs-bank5.bin";
+  case BBS_BANK_ID_XFER:   return "bank1.prg";
+  case BBS_BANK_ID_POST:   return "bank2.prg";
+  case BBS_BANK_ID_MSG:    return "bank3.prg";
+  case BBS_BANK_ID_STATS:  return "bank4.prg";
+  case BBS_BANK_ID_XMODEM: return "bank5.prg";
   default:                 return NULL;
   }
 }
@@ -64,6 +93,7 @@ bbs_bank_load(unsigned char bank_id)
   unsigned int n;
   unsigned char *dst;
   const char *filename;
+  char path[40];
   bbs_bank_init_fn init_fn;
 
   filename = bbs_bank_filename(bank_id);
@@ -77,8 +107,9 @@ bbs_bank_load(unsigned char bank_id)
     bbs_bank_unload();
   }
 
+  bbs_path_sys_colon(path, filename);
   if(cbm_open(BBS_FILE_CHANNEL, board.sys_device, BBS_FILE_CHANNEL,
-      filename) != 0u) {
+      path) != 0u) {
     return 0u;
   }
   dst = (unsigned char *)BBS_BANK_BASE;
@@ -93,13 +124,10 @@ bbs_bank_load(unsigned char bank_id)
   }
   cbm_close(BBS_FILE_CHANNEL);
 
-  if(total < BBS_BANK_HDR_SIZE || bbs_bank_sig_ok(bank_id) == 0u) {
+  if(total < BBS_BANK_HDR_SIZE || bbs_bank_header_ok(bank_id) == 0u) {
     return 0u;
   }
-  if(bbs_bank_entry_is_jmp(BBS_BANK_INIT_OFF) == 0u ||
-      bbs_bank_entry_is_jmp(BBS_BANK_DEINIT_OFF) == 0u) {
-    return 0u;
-  }
+  bbs_bank_clear_bss(total);
 
   init_fn = (bbs_bank_init_fn)BBS_BANK_INIT_ADDR;
   BBS_SHARED->active_bank = bank_id;
@@ -119,7 +147,8 @@ bbs_bank_unload(void)
 {
   bbs_bank_void_fn deinit_fn;
 
-  if(bbs_bank_loaded != 0u) {
+  if(bbs_bank_loaded != 0u &&
+      bbs_bank_header_ok(bbs_bank_cur_id) != 0u) {
     deinit_fn = (bbs_bank_void_fn)BBS_BANK_DEINIT_ADDR;
     deinit_fn();
   }
