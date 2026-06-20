@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Post-link RAM checks for Magnetar BBS C64 core and bank overlays."""
 
+import os
 import re
 import sys
 
@@ -15,6 +16,27 @@ BBS_API_STUB_SIZE = 3
 BBS_API_STUB_COUNT = 22
 BBS_API_SIZE = BBS_API_STUB_COUNT * BBS_API_STUB_SIZE
 BBS_ABI_VERSION = 0x0100
+
+# Map/module tokens that must not appear in the wrong core flavor.
+SERIAL_FORBIDDEN = (
+    "uip.o",
+    "tcpip.o",
+    "uip_arp.o",
+    "magnetar-netcfg.o",
+    "cs8900a.o",
+    "ethernet.o",
+    "ethernet-drv.o",
+    "contiki-main.o",
+)
+TCP_REQUIRED = (
+    "tcpip.o",
+    "uip.o",
+    "magnetar-netcfg.o",
+)
+TCP_FORBIDDEN = (
+    "c64-swlink-ser.o",
+    "c64_up2400.o",
+)
 
 BBS_BANK_BASE = 0xB000
 BANK_TOP = 0xD000
@@ -204,9 +226,39 @@ def check_resapi_binary(bin_path, map_path):
             )
 
 
+def check_core_flavor(map_path, bin_path):
+    """Reject TCP/uIP in serial builds and serial drivers in TCP builds."""
+    name = os.path.basename(bin_path)
+    try:
+        body = open(map_path, encoding="ascii", errors="replace").read()
+    except OSError as e:
+        raise SystemExit(f"{map_path}: {e}") from e
+
+    if name.startswith("magnetar-serial"):
+        for token in SERIAL_FORBIDDEN:
+            if token in body:
+                raise SystemExit(
+                    f"serial core contaminated: {token} in {map_path} "
+                    f"(rebuild with make serial-core or rm -rf obj_c64_tcp obj_c64_serial)"
+                )
+    elif name.startswith("contiki-bbs"):
+        for token in TCP_REQUIRED:
+            if token not in body:
+                raise SystemExit(
+                    f"tcp core missing {token} in {map_path} "
+                    f"(wrong archive linked? use make tcp-core)"
+                )
+        for token in TCP_FORBIDDEN:
+            if token in body:
+                raise SystemExit(f"tcp core contaminated: {token} in {map_path}")
+    else:
+        raise SystemExit(f"unknown core binary {name!r}; expected contiki-bbs or magnetar-serial")
+
+
 def check_core(map_path, bin_path):
     check_screen_layout()
     check_resapi_binary(bin_path, map_path)
+    check_core_flavor(map_path, bin_path)
 
     segs = parse_segments(
         map_path, ["BSS", "SHARED", "LOWBSS", "CODE", "DATA", "INIT", "ONCE", "RESAPI"]
@@ -285,10 +337,18 @@ def check_core(map_path, bin_path):
             f"MAIN ends ${main_hi - 1:04X}, intrudes RESAPI at ${BBS_API_BASE:04X}"
         )
 
+    code = segs.get("CODE")
+    code_sz = code[2] if code is not None else 0
+    try:
+        prg_sz = os.path.getsize(bin_path)
+    except OSError:
+        prg_sz = 0
+
     print(
         f"core OK: RESAPI ${resapi[0]:04X}-${resapi[1] - 1:04X}, "
         f"SHARED ${shared[0]:04X}-${shared[1] - 1:04X}, "
-        f"BSS ${bss[0]:04X}-${bss_end - 1:04X}, stack gap {gap} B"
+        f"BSS ${bss[0]:04X}-${bss_end - 1:04X}, stack gap {gap} B, "
+        f"CODE {code_sz} B, PRG {prg_sz} B"
     )
 
 

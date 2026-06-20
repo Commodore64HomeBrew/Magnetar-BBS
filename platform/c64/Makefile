@@ -60,6 +60,15 @@ endif
 
 all: $(CONTIKI_PROJECT) banks memcheck
 
+# Build both core flavors (separate object trees). PRG byte size matches due to
+# fixed MAIN fill in c64-bbs-core.cfg; compare CODE segment in map/memcheck instead.
+.PHONY: both-cores tcp-core serial-core
+both-cores: tcp-core serial-core
+tcp-core:
+	$(MAKE) contiki-bbs
+serial-core:
+	$(MAKE) magnetar-serial BBS_SERIAL=1
+
 # Banks: bankN.prg on sys device root; loader opens bare bankN name.
 banks: bank1.prg bank2.prg bank3.prg bank4.prg bank5.prg
 
@@ -82,7 +91,7 @@ override OBJECTDIR := obj_c64_$(BBS_CORE_VARIANT)
 
 include $(CONTIKI)/Makefile.include
 
-CONTIKI_AR := contiki-$(TARGET)-$(BBS_CORE_VARIANT).a
+CONTIKI_AR := $(OBJECTDIR)/contiki-$(TARGET)-$(BBS_CORE_VARIANT).a
 CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname, $(CONTIKI_SOURCEFILES)}}
 PROJECT_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname, $(PROJECT_SOURCEFILES)}}
 BANK_CC65_LIB = $(OBJECTDIR)/c64-bank.lib
@@ -144,13 +153,14 @@ endif
 CC65_LIB = $(patsubst %/target,%/lib,$(shell $(CC) --print-target-path))/$(TARGET).lib
 
 # Beat Makefile.customrules-6502 (hard-coded contiki-$(TARGET).a archive name).
+# List inputs explicitly — do not use $^ (GNU make merges %.c64 pattern-rule deps).
 contiki-bbs.c64: contiki-bbs.co $(PROJECT_OBJECTFILES) $(PROJECT_LIBRARIES) $(CONTIKI_AR)
 	@echo "  LD        $@"
-	$(Q)$(LD) -o $@ $(LDFLAGS) -u _main $^ $(CC65_LIB)
+	$(Q)$(LD) -o $@ $(LDFLAGS) -u _main contiki-bbs.co $(PROJECT_OBJECTFILES) $(PROJECT_LIBRARIES) $(CONTIKI_AR) $(CC65_LIB)
 
 magnetar-serial.c64: magnetar-serial.co $(PROJECT_OBJECTFILES) $(PROJECT_LIBRARIES) $(CONTIKI_AR)
 	@echo "  LD        $@"
-	$(Q)$(LD) -o $@ $(LDFLAGS) -u _main $^ $(CC65_LIB)
+	$(Q)$(LD) -o $@ $(LDFLAGS) -u _main magnetar-serial.co $(PROJECT_OBJECTFILES) $(PROJECT_LIBRARIES) $(CONTIKI_AR) $(CC65_LIB)
 
 $(OBJECTDIR)/vendor/up2400/c64-up2400.o: vendor/up2400/c64-up2400.S | $(OBJECTDIR)
 	@mkdir -p $(dir $@)

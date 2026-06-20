@@ -1214,6 +1214,9 @@ shell_input(char *commandline, int commandline_len)
 {
   int clen;
   int postres;
+#ifndef BBS_SERIAL_TRANSPORT
+  struct shell_input input;
+#endif
 
   if(bbs_status.status == STATUS_XFER) {
     return;
@@ -1234,8 +1237,6 @@ shell_input(char *commandline, int commandline_len)
         clen = TELNETD_CONF_LINELEN;
       }
 #ifndef BBS_SERIAL_TRANSPORT
-      struct shell_input input;
-
       input.data1 = commandline;
       input.len1 = clen;
       input.data2 = "";
