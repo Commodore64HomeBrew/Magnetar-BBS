@@ -30,9 +30,9 @@ CONTIKI_WITH_RPL := 0
 BBS_HEADLESS := 1
 CONTIKI_BBS_MINIMAL := 1
 ifeq ($(BBS_SERIAL_FLAVOR),2)
-DEFINES := WITH_LOGGING,WITH_PFS,MAGNETAR_BBS,TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,BBS_SERIAL_UP2400,STATIC_DRIVER=c64_up2400_ser
+DEFINES := WITH_LOGGING,WITH_PFS,MAGNETAR_BBS,BBS_SERIAL_TRANSPORT,BBS_SERIAL_UP2400,STATIC_DRIVER=c64_up2400_ser
 else
-DEFINES := WITH_LOGGING,WITH_PFS,MAGNETAR_BBS,TELNETD_CONF_REJECT,BBS_SERIAL_TRANSPORT,STATIC_DRIVER=c64_swlink_ser
+DEFINES := WITH_LOGGING,WITH_PFS,MAGNETAR_BBS,BBS_SERIAL_TRANSPORT,STATIC_DRIVER=c64_swlink_ser
 endif
 CFLAGS += -DCONNECTIONS=1 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=128 -DUIP_CONF_TCP_MSS=64
 PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-shared-reserve.S bbs-core-api.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
@@ -128,14 +128,14 @@ CONTIKI_SOURCEFILES += pfs.S pfs-dir.c pfs-dir-asm.S pfs_remove.S pfs_seek.S pfs
 CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFILES)}}
 endif
 
-ifneq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
+# BBS uses magnetar-netcfg.c (TCP) or serial static config; not Contiki config.c.
 CONTIKI_SOURCEFILES := $(filter-out config.c,$(CONTIKI_SOURCEFILES))
 CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFILES)}}
+
+ifneq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
 cs8900a.eth lan91c96.eth w5100.eth:
 	@:
 else
-CONTIKI_SOURCEFILES := $(filter-out config.c,$(CONTIKI_SOURCEFILES))
-CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFILES)}}
 %.eth: $(OBJECTDIR)/%.o
 	@echo "  LD       " $@
 	$(Q)$(LD) -o $@ -t module -m $@.map $< $(CC65_LIB)

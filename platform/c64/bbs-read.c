@@ -38,7 +38,7 @@ read_msg(unsigned short num)
 
 /*---------------------------------------------------------------------------*/
 PROCESS(bbs_read_process, "read");
-SHELL_COMMAND(bbs_read_command, "#", "# : select msg", &bbs_read_process);
+SHELL_COMMAND(bbs_read_command, "#", "", &bbs_read_process);
 SHELL_COMMAND(bbs_prevmsg_command, "r", "", &bbs_msg_nop_process);
 SHELL_COMMAND(bbs_nextmsg1_command, "\x0d", "", &bbs_msg_nop_process);
 SHELL_COMMAND(bbs_nextmsg2_command, "\x0a", "", &bbs_msg_nop_process);

@@ -66,7 +66,6 @@ post_commit(char *body, char *msg_name, char *file_name)
 }
 
 PROCESS(bbs_post_process, "write");
-//SHELL_COMMAND(bbs_post_command, "w", "w : write msg", &bbs_post_process);
 SHELL_COMMAND(bbs_post_command, "w", "", &bbs_post_process);
 
 /*---------------------------------------------------------------------------*/

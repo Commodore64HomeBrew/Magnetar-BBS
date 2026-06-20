@@ -282,9 +282,6 @@ bbs_xfer_dispatch(void)
 
 /*---------------------------------------------------------------------------*/
 PROCESS(bbs_xfer_process, "xfer");
-//SHELL_COMMAND(bbs_xfer_cd_command, "cd", "cd : change dir", &bbs_xfer_process);
-//SHELL_COMMAND(bbs_xfer_md_command, "md", "md : make dir", &bbs_xfer_process);
-//SHELL_COMMAND(bbs_xfer_ls_command, "$", "$ : disk directory", &bbs_xfer_process);
 SHELL_COMMAND(bbs_xfer_cd_command, "cd", "", &bbs_xfer_process);
 SHELL_COMMAND(bbs_xfer_md_command, "md", "", &bbs_xfer_process);
 SHELL_COMMAND(bbs_xfer_ls_command, "$", "", &bbs_xfer_process);

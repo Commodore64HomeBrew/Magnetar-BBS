@@ -172,9 +172,7 @@ static unsigned char telnetd_tcp_firstrx;
 static unsigned char telnetd_tcp_tx_pending;
 /* 1: unacked TCP payload came from STATUS_STREAM (sd_c), not the shell ring. */
 static unsigned char telnetd_tcp_stream_unacked;
-#ifndef BBS_SERIAL_TRANSPORT
 static unsigned char transport_flush_depth;
-#endif
 /* strlen(telnetd_reject_text) after optional PETSCII→ASCII in process init. */
 static unsigned int telnetd_reject_len;
 #else
@@ -1048,9 +1046,11 @@ PROCESS_THREAD(telnetd_process, ev, data)
 
   shell_init();
 
+#ifdef TELNETD_CONF_REJECT
   if(bbs_status.encoding == 1) {
     petscii_to_ascii(telnetd_reject_text, strlen(telnetd_reject_text));
   }
+#endif
 
 #ifndef BBS_SERIAL_TRANSPORT
   telnetd_reject_len = (unsigned int)strlen(telnetd_reject_text);
@@ -1253,7 +1253,6 @@ get_char(uint8_t c)
 
 		s.buf[(int)s.bufptr] = 0;
 		if(bbs_status.encoding==1){ascii_to_petscii(s.buf, TELNETD_CONF_LINELEN);}
-		//if(bbs_status.encoding==2){atascii_to_petscii(s.buf, TELNETD_CONF_LINELEN);}
 		//PRINTF("telnetd: get_char '%.*s'\n", s.bufptr, s.buf);
 		TELWRAP_LINE_RESET();
 		if(s.bufptr > 0u) {

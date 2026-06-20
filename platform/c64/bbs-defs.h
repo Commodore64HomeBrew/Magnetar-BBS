@@ -19,7 +19,6 @@
 #define BBS_MODE_CONSOLE        1
 
 #define BBS_MAX_BOARDS          8
-#define BBS_MAX_MSGLINES        20
 #define BBS_80_COL             	78
 #define BBS_40_COL	           	38
 #define BBS_22_COL	           	20
@@ -66,14 +65,12 @@
 /* Min size for buffers passed to file_path() (boost paths need headroom). */
 #define BBS_FILE_PATH_BUFLEN    48
 
-#define BBS_SESSION_TIMEOUT (CLOCK_SECOND * 3600)
 #define BBS_LOGIN_TIMEOUT   (CLOCK_SECOND * 60)
 #define BBS_IDLE_TIMEOUT    (CLOCK_SECOND * 120)
 
 
 
 #define BBS_PET80_SUFFIX       "-c"
-#define BBS_PET40_SUFFIX       "-c"
 #define BBS_PET22_SUFFIX       "-v"
 #define BBS_ASCII_SUFFIX       "-a"
 #define BBS_PREFIX_SUB         "s-"
@@ -134,9 +131,7 @@
 #define STATUS_DIRLIST 13
 
 /* File transfer area (under board.transfer_prefix). */
-#define BBS_XFER_MAX_FILES  4
 #define BBS_XFER_NAME_LEN   17
-#define BBS_XFER_PATH_LEN   28
 #define BBS_XFER_BLOCK      128
 #define BBS_XFER_RBUF       132
 

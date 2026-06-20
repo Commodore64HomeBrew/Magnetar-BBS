@@ -32,9 +32,6 @@ extern void c64_up2400_ser[];
 
 PROCINIT(&etimer_process);
 
-/* Kept for config compatibility even though serial mode never sends busy text. */
-char telnetd_reject_text[] = "centronian bbs is busy, please try again later.";
-
 #ifdef BBS_SERIAL_UP2400
 /* Userport UP2400 (c64_up2400_ser): 2400 baud, software handshake only. */
 const struct ser_params magnetar_serial_params = {

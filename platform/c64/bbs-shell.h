@@ -111,7 +111,7 @@ void set_prompt(void);
  */
 void shell_init(void);
 
-/** Magnetar hook: drain autostart events after shell_init (processes already started). */
+/** Called from contiki-main after autostart; BBS processes already started in shell_init. */
 void magnetar_bbs_after_autostart(void);
 
 /**

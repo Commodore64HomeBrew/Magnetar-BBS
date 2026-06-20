@@ -370,8 +370,6 @@ bbs_xmodem_xfer_dispatch(void)
 
 /*---------------------------------------------------------------------------*/
 PROCESS(bbs_xmodem_xfer_process, "xmodem");
-//SHELL_COMMAND(bbs_xmodem_dl_command, "d", "d : download (d name)", &bbs_xmodem_xfer_process);
-//SHELL_COMMAND(bbs_xmodem_ul_command, "u", "u : upload (u name)", &bbs_xmodem_xfer_process);
 SHELL_COMMAND(bbs_xmodem_dl_command, "d", "", &bbs_xmodem_xfer_process);
 SHELL_COMMAND(bbs_xmodem_ul_command, "u", "", &bbs_xmodem_xfer_process);
 /*---------------------------------------------------------------------------*/

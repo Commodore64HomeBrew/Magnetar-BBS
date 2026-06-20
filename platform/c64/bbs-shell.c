@@ -48,7 +48,7 @@ PROCESS(shell_server_process, "Shell server");
 PROCESS(bbs_timer_process, "timer");
 
 PROCESS(bbs_login_process, "login");
-SHELL_COMMAND(bbs_login_command, "login", "login  : login proc", &bbs_login_process);
+SHELL_COMMAND(bbs_login_command, "login", "", &bbs_login_process);
 
 /* Defer disk/bank work out of telnetd_appcall and deep login stack frames. */
 static unsigned char bbs_login_defer_flags;
@@ -69,17 +69,17 @@ static char shell_deferred_input_line[TELNETD_CONF_LINELEN + 1];
 static struct shell_input shell_deferred_input_holder;
 
 /*---------------------------------------------------------------------------*/
-SHELL_COMMAND(version_command, "v", "v : version", &shell_process);
+SHELL_COMMAND(version_command, "v", "", &shell_process);
 
-SHELL_COMMAND(help_command, "?", "? : help", &shell_process);
+SHELL_COMMAND(help_command, "?", "", &shell_process);
 
-SHELL_COMMAND(quit_command, "q", "q : quit", &shell_process);
+SHELL_COMMAND(quit_command, "q", "", &shell_process);
 
 PROCESS(settime_process, "settime");
-SHELL_COMMAND(settime_command, "t", "t : time", &settime_process);
+SHELL_COMMAND(settime_command, "t", "", &settime_process);
 
 PROCESS(movie_process, "movies");
-SHELL_COMMAND(movie_command, "m", "m : movies", &movie_process);
+SHELL_COMMAND(movie_command, "m", "", &movie_process);
 
 /*---------------------------------------------------------------------------*/
 void bbs_defaults(void)
@@ -420,7 +420,6 @@ void bbs_login()
 
  	//**********************************************************************
 	telnetd_discard_pending_rx();
-	bbs_transport_flush_outbound();
 	bbs_transport_buf_reset();
 	process_exit(&bbs_timer_process);
 	bbs_status.status=STATUS_LOCK;
@@ -507,7 +506,6 @@ login_stats_continue(void)
 {
   bbs_record_last_caller();
   telnetd_discard_pending_rx();
-  bbs_transport_flush_outbound();
   if(bbs_bank_ensure_stats() != 0u) {
     bbs_bank_run_sys_stats();
   } else {
@@ -584,7 +582,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             else if(login_token_eq(input->data1, '4')) {
               bbs_status.encoding=0;
               bbs_status.wrap=1;
-              strcpy(bbs_status.encoding_suffix, BBS_PET40_SUFFIX);
+              strcpy(bbs_status.encoding_suffix, BBS_PET80_SUFFIX);
             }
             else if(login_token_eq(input->data1, '2')) {
               bbs_status.encoding=0;
@@ -604,13 +602,6 @@ PROCESS_THREAD(bbs_login_process, ev, data)
               strcpy(bbs_status.encoding_suffix, BBS_ASCII_SUFFIX);
             }
 
-            else if(login_token_eq(input->data1, 't')) {
-              bbs_status.encoding=2;
-              bbs_status.echo=1;
-              strcpy(bbs_status.encoding_suffix, BBS_ASCII_SUFFIX);
-            }
-
-
             else{
               shell_prompt(BBS_ENCODING_STRING);
               break;
@@ -629,7 +620,6 @@ PROCESS_THREAD(bbs_login_process, ev, data)
             }
     			 
       			return_code = bbs_get_user(input->data1);
-            //return_code=1;
       			if ( return_code == 1 ) {
       			    shell_prompt("\n\rpassword: ");
       			    bbs_status.status=STATUS_PASSWD;
@@ -644,7 +634,6 @@ PROCESS_THREAD(bbs_login_process, ev, data)
       			  shell_output_str(&bbs_login_command, "login failed.", "");
       			  shell_output_str(NULL, BBS_HELP_STRING, "");
 
-      			  //bbs_unlock();
               	  shell_stop();
       			  log_message("\x96", "login failed");
       			}
@@ -659,7 +648,6 @@ PROCESS_THREAD(bbs_login_process, ev, data)
               bbs_transport_buf_reset();
               shell_output_str(NULL, "wrong password.", "");
               shell_output_str(NULL, BBS_HELP_STRING, "");
-              //bbs_unlock();
               shell_stop();
               log_message("\x96", "wrong password");
             }
@@ -696,7 +684,6 @@ PROCESS_THREAD(bbs_login_process, ev, data)
               break;
             }
             telnetd_discard_pending_rx();
-            bbs_transport_flush_outbound();
             bbs_login_defer_flags |= BBS_LOGIN_DEFER_FINISH;
             bbs_login_schedule_poll();
             break;
@@ -1242,13 +1229,13 @@ shell_input(char *commandline, int commandline_len)
       front_process = &shell_process;
     }
     if(process_is_running(front_process)) {
-      struct shell_input input;
-
       clen = commandline_len;
       if(clen > TELNETD_CONF_LINELEN) {
         clen = TELNETD_CONF_LINELEN;
       }
 #ifndef BBS_SERIAL_TRANSPORT
+      struct shell_input input;
+
       input.data1 = commandline;
       input.len1 = clen;
       input.data2 = "";
@@ -1383,7 +1370,6 @@ PROCESS_THREAD(shell_process, ev, data)
     if (ev == PROCESS_EVENT_TIMER){
       log_message("\x9a", "timer event2");
       shell_stop();
-      //bbs_unlock();
     }
     if(!shell_skip_prompt && bbs_status.status > STATUS_HANDLE &&
         front_process == &shell_process) {
@@ -1457,15 +1443,6 @@ shell_init(void)
 void
 magnetar_bbs_after_autostart(void)
 {
-  unsigned char i;
-
-  /* Drain autostart CONTINUE events before main loop (shell_init already started processes). */
-  for(i = 0; i < 16u; ++i) {
-    if(process_run() == 0 && process_nevents() == 0) {
-      break;
-    }
-    etimer_request_poll();
-  }
 }
 /*---------------------------------------------------------------------------*/
 static int
