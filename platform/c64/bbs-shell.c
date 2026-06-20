@@ -646,7 +646,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
       			    bbs_status.status=STATUS_NEWUSR;
       			}
       			else {
-      			  bbs_transport_buf_discard();
+      			  bbs_transport_buf_reset();
       			  shell_output_str(&bbs_login_command, "login failed.", "");
       			  shell_output_str(NULL, BBS_HELP_STRING, "");
 
@@ -662,7 +662,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
               bbs_status.login = 1;
               bbs_login_defer_stats_screen();
             } else {
-              bbs_transport_buf_discard();
+              bbs_transport_buf_reset();
               shell_output_str(NULL, "wrong password.", "");
               shell_output_str(NULL, BBS_HELP_STRING, "");
               //bbs_unlock();

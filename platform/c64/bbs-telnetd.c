@@ -343,15 +343,7 @@ buf_scr_guard(void)
 void
 bbs_transport_buf_discard(void)
 {
-  unsigned char st;
-
   buf_scr_guard();
-  st = bbs_status.status;
-  if(st != STATUS_READ && st != STATUS_DIRLIST &&
-      st != STATUS_STREAM && st != STATUS_XFER) {
-    /* Ring uses screen RAM; reset pointers alone leaves stale bytes in the send window. */
-    memset(buf.bufmem, 0x20, buf.size);
-  }
   buf.head = 0u;
   buf.used = 0u;
   s.numsent = 0;
