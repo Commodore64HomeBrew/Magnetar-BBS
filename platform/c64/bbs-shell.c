@@ -1510,7 +1510,6 @@ shell_quit(void)
 void
 update_time(void) {
   unsigned long now_sec;
-  char message[40];
 
   now_sec = clock_seconds() + clock_offset;
 
@@ -1523,6 +1522,7 @@ update_time(void) {
 
 
   if (last_time > now_sec) {
+    unsigned char month_idx;
 
 	//Increment the stats day pointer:
 	++bbs_sysstats.day_ptr;
@@ -1531,7 +1531,11 @@ update_time(void) {
 	}
 	bbs_sysstats.daily_msgs[bbs_sysstats.day_ptr]=0;
 
-    if (bbs_time.day==month_days[bbs_time.month-1]){
+    if(bbs_time.month < 1u || bbs_time.month > 12u) {
+      bbs_time.month = 1u;
+    }
+    month_idx = (unsigned char)(bbs_time.month - 1u);
+    if (bbs_time.day==month_days[month_idx]){
 
 	  //Future code to handle leap years:
       //if(bbs_status.month==2 && bbs_status.day==28 && (bbs_status.year % 4) == 0)
@@ -1552,11 +1556,6 @@ update_time(void) {
   }
 
   last_time = now_sec;
-	
-  //gotoxy(25,0);
-  sprintf(message,"%d:%d %d/%d/%d\n\r", bbs_time.hour ,bbs_time.minute, bbs_time.day,  bbs_time.month, bbs_time.year);
-  log_message("\x9e", message);
-
 }
 
 
