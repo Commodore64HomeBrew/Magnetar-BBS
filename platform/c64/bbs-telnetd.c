@@ -552,6 +552,32 @@ bbs_transport_session_close(void)
   telnetd_kick_disconnect();
 }
 
+static unsigned char
+telnetd_outbound_quiescent(void)
+{
+  if(buf.used != 0u) {
+    return 0u;
+  }
+#ifndef BBS_SERIAL_TRANSPORT
+  if(telnetd_tcp_tx_pending != 0u || telnetd_tcp_stream_unacked != 0u) {
+    return 0u;
+  }
+#endif
+  return 1u;
+}
+
+static void
+telnetd_finish_session_if_closed(void)
+{
+  if(s.state != STATE_CLOSE || telnetd_outbound_quiescent() == 0u) {
+    return;
+  }
+  if(bbs_locked != 0u) {
+    shell_stop();
+  }
+  s.state = STATE_NORMAL;
+}
+
 void
 bbs_transport_busy_reject(void)
 {
@@ -931,19 +957,12 @@ telnetd_serial_poll_io(void)
     return;
   }
 
-  if(s.state == STATE_CLOSE && s.connected != 0u) {
-    s.state = STATE_NORMAL;
-    telnetd_serial_disconnect();
-    return;
-  }
-
   if(s.connected == 0u) {
+    if(s.state == STATE_CLOSE) {
+      /* Stale CLOSE after disconnect path cleared connected (idle/timer). */
+      s.state = STATE_NORMAL;
+    }
     return;
-  }
-
-  if(s.state == STATE_CLOSE) {
-    /* Stale CLOSE after disconnect path cleared connected (idle/timer). */
-    s.state = STATE_NORMAL;
   }
 
   {
@@ -957,8 +976,16 @@ telnetd_serial_poll_io(void)
     }
   }
 
-  if(timer_expired(&silence_timer)) {
+  if(s.state == STATE_CLOSE && telnetd_outbound_quiescent() != 0u) {
+    telnetd_finish_session_if_closed();
     telnetd_serial_disconnect();
+    return;
+  }
+
+  if(timer_expired(&silence_timer)) {
+    if(s.state != STATE_CLOSE || telnetd_outbound_quiescent() != 0u) {
+      telnetd_serial_disconnect();
+    }
   }
 }
 /*---------------------------------------------------------------------------*/
@@ -1443,8 +1470,8 @@ telnetd_appcall(void *ts)
 
   if(!ts) {
     /* Logoff banner queued in ring; FIN only after outbound ring drains. */
-    if(s.state == STATE_CLOSE && buf.used == 0u) {
-      s.state = STATE_NORMAL;
+    if(s.state == STATE_CLOSE && telnetd_outbound_quiescent() != 0u) {
+      telnetd_finish_session_if_closed();
       uip_close();
       return;
     }

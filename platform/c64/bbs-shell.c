@@ -339,7 +339,9 @@ void bbs_unlock(void)
 
   bbs_status.status=STATUS_UNLOCK;
   bbs_locked=0;
-  process_exit(&bbs_timer_process);
+  if(process_is_running(&bbs_timer_process)) {
+    process_exit(&bbs_timer_process);
+  }
   //shell_exit();
   bbs_transport_session_close();
 }
@@ -869,12 +871,18 @@ shell_do_quit(void)
   }
 
   log_message("\x05logout: ", bbs_user.user_name);
+  shell_skip_prompt = 1u;
+  bbs_status.status = STATUS_UNLOCK;
+  if(process_is_running(&bbs_timer_process)) {
+    process_exit(&bbs_timer_process);
+  }
 #ifndef BBS_SERIAL_TRANSPORT
   bbs_transport_flush_outbound();
 #else
   bbs_serial_flush_outbound();
 #endif
-  shell_stop();
+  /* Defer shell_stop() until telnetd drains the logout banner (STATE_CLOSE). */
+  bbs_transport_session_close();
 }
 
 /*---------------------------------------------------------------------------*/
