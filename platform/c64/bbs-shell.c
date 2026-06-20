@@ -646,6 +646,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
       			    bbs_status.status=STATUS_NEWUSR;
       			}
       			else {
+      			  bbs_transport_buf_discard();
       			  shell_output_str(&bbs_login_command, "login failed.", "");
       			  shell_output_str(NULL, BBS_HELP_STRING, "");
 
@@ -661,6 +662,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
               bbs_status.login = 1;
               bbs_login_defer_stats_screen();
             } else {
+              bbs_transport_buf_discard();
               shell_output_str(NULL, "wrong password.", "");
               shell_output_str(NULL, BBS_HELP_STRING, "");
               //bbs_unlock();
@@ -1062,6 +1064,15 @@ bbs_bank_route_command(const char *cmd, int len)
   return 1u;
 }
 
+static unsigned char
+bbs_msg_has_next(void)
+{
+  unsigned short next;
+
+  next = (unsigned short)(bbs_usrstats.current_msg[bbs_status.board_id] + 1u);
+  return (next <= bbs_config.msg_id[bbs_status.board_id]) ? 1u : 0u;
+}
+
 /*---------------------------------------------------------------------------*/
 static struct shell_command *
 start_command(char *commandline, struct shell_command *child)
@@ -1095,6 +1106,18 @@ start_command(char *commandline, struct shell_command *child)
     args = &commandline[command_len];
   } else {
     command_len = (int)(args - commandline - 1);
+  }
+
+  /* Return at prompt with no unread msgs: refresh prompt only (no bank load). */
+  if(command_len == 1 &&
+      (commandline[0] == ISO_cr || commandline[0] == ISO_nl) &&
+      bbs_status.status == STATUS_LOCK &&
+      bbs_msg_has_next() == 0u) {
+    set_prompt();
+    shell_prompt(bbs_status.prompt);
+    shell_skip_prompt = 1u;
+    command_kill(child);
+    return NULL;
   }
 
   if(bbs_bank_route_command(commandline, command_len) == 0u) {

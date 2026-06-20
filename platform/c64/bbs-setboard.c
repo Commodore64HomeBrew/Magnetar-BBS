@@ -50,6 +50,7 @@ PROCESS_THREAD(bbs_setboard_process, ev, data)
       bbs_status.board_id = num;
       set_prompt();
       bbs_sub_banner();
+      shell_prompt(bbs_status.prompt);
       PROCESS_EXIT();
     }
   }
@@ -77,6 +78,7 @@ PROCESS_THREAD(bbs_setboard_process, ev, data)
     bbs_status.board_id = num;
     set_prompt();
     bbs_sub_banner();
+    shell_prompt(bbs_status.prompt);
   }
 
   PROCESS_END();
