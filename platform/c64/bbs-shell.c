@@ -872,11 +872,7 @@ shell_do_quit(void)
 
   log_message("\x05logout: ", bbs_user.user_name);
   shell_skip_prompt = 1u;
-#ifndef BBS_SERIAL_TRANSPORT
-  bbs_transport_flush_outbound();
-#else
-  bbs_serial_flush_outbound();
-#endif
+  /* Same teardown as wrong-password disconnect: queue art, then shell_stop(). */
   shell_stop();
 }
 
@@ -1503,6 +1499,7 @@ shell_stop(void)
   bbs_login_defer_flags = 0u;
   bbs_unlock();
   killall();
+  bbs_bank_unload();
 }
 /*---------------------------------------------------------------------------*/
 void

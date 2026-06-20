@@ -12,9 +12,9 @@
  * Policy:
  * - After password: load bank 4 (stats) if needed; run login chart; keep stats loaded at prompt.
  * - At prompt: bank switch only when a routed command needs another bank (bbs_bank_load).
- * - On disconnect: leave the active bank overlay in place (no unload/deinit here).
- * - Next login: bbs_bank_load() unloads any stale bank before loading stats if needed.
- * - bbs_bank_load() skips disk/init when the requested bank is already active.
+ * - On disconnect: shell_stop() unloads/deinits the active bank (same for quit and login failure).
+ * - Next login: bbs_bank_load() loads stats fresh (init + shell command registration).
+ * - bbs_bank_load() skips disk/init when the requested bank is already active within a session.
  */
 
 #define BBS_BANK_HDR_SIZE       0x0015u
