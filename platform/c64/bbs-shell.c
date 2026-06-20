@@ -420,10 +420,8 @@ void bbs_login()
 
  	//**********************************************************************
 	telnetd_discard_pending_rx();
-#ifndef BBS_SERIAL_TRANSPORT
 	bbs_transport_flush_outbound();
-#endif
-	bbs_transport_buf_discard();
+	bbs_transport_buf_reset();
 	process_exit(&bbs_timer_process);
 	bbs_status.status=STATUS_LOCK;
 
@@ -471,13 +469,13 @@ void bbs_login()
 
 	//Display the sub banner:
 	bbs_sub_banner_core();
+	/* Stats overlay served login chart; unload so core commands run clean at prompt. */
+	bbs_bank_unload();
 	set_prompt();
 	shell_prompt(bbs_status.prompt);
 	process_start(&bbs_timer_process, NULL);
   front_process=&shell_process;
-#ifndef BBS_SERIAL_TRANSPORT
   bbs_transport_flush_outbound();
-#endif
 }
 
 static void
@@ -509,9 +507,7 @@ login_stats_continue(void)
 {
   bbs_record_last_caller();
   telnetd_discard_pending_rx();
-#ifndef BBS_SERIAL_TRANSPORT
   bbs_transport_flush_outbound();
-#endif
   if(bbs_bank_ensure_stats() != 0u) {
     bbs_bank_run_sys_stats();
   } else {
@@ -519,9 +515,7 @@ login_stats_continue(void)
   }
   shell_output_str(NULL, "\r\n\x9ehit return to continue", "");
   bbs_status.status = STATUS_STATS;
-#ifndef BBS_SERIAL_TRANSPORT
   bbs_transport_flush_outbound();
-#endif
 }
 
 /*---------------------------------------------------------------------------*/
@@ -702,9 +696,7 @@ PROCESS_THREAD(bbs_login_process, ev, data)
               break;
             }
             telnetd_discard_pending_rx();
-#ifndef BBS_SERIAL_TRANSPORT
             bbs_transport_flush_outbound();
-#endif
             bbs_login_defer_flags |= BBS_LOGIN_DEFER_FINISH;
             bbs_login_schedule_poll();
             break;

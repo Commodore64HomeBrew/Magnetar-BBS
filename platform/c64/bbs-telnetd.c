@@ -340,12 +340,24 @@ buf_scr_guard(void)
   }
 }
 
+static void
+buf_ring_memset_safe(unsigned char fill)
+{
+  unsigned char den;
+
+  /* Ring is VIC screen RAM; blank DEN while clearing so the CPU isn't fighting the beam. */
+  den = *(volatile unsigned char *)0xD011;
+  *(volatile unsigned char *)0xD011 = (unsigned char)(den & (unsigned char)~0x10u);
+  memset(buf.bufmem, fill, buf.size);
+  *(volatile unsigned char *)0xD011 = den;
+}
+
 /*
  * Outbound ring uses screen RAM ($0400+). Policy:
  * - bbs_transport_buf_discard(): pointer reset only; safe mid-session (bank load,
  *   login banner, read prep). New output overwrites stale bytes in the ring window.
- * - bbs_transport_buf_reset(): also memset's bufmem; use only at connect init or
- *   login reject/disconnect when replacing all pending wire content is required.
+ * - bbs_transport_buf_reset(): also memset's bufmem with DEN off; use at connect
+ *   init, login home screen, and login reject/disconnect when a full ring wipe is required.
  */
 void
 bbs_transport_buf_discard(void)
@@ -370,8 +382,7 @@ bbs_transport_buf_reset(void)
   st = bbs_status.status;
   if(st != STATUS_READ && st != STATUS_DIRLIST &&
       st != STATUS_STREAM && st != STATUS_XFER) {
-    /* See discard vs reset policy above; not for mid-session bank/command paths. */
-    memset(buf.bufmem, 0x20, buf.size);
+    buf_ring_memset_safe(0x20);
   }
   buf.head = 0u;
   buf.used = 0u;

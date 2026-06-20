@@ -7,6 +7,8 @@
 *.c64
 *.eth
 obj_c64/
+obj_c64_tcp/
+obj_c64_serial/
 *.after
 *.textClipping
 

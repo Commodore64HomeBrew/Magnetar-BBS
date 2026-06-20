@@ -10,7 +10,7 @@
  * Banks call core through fixed RESAPI stubs at $A210 (bbs-api.h).
  *
  * Policy:
- * - After password: load bank 4 (stats) if needed; run login chart; keep stats loaded at prompt.
+ * - After password: load bank 4 (stats) if needed; run login chart; unload before prompt.
  * - At prompt: bank switch only when a routed command needs another bank (bbs_bank_load).
  * - On disconnect: shell_stop() unloads/deinits the active bank (same for quit and login failure).
  * - Next login: bbs_bank_load() loads stats fresh (init + shell command registration).

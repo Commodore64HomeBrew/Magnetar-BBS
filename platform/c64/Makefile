@@ -2,6 +2,8 @@ ifndef CONTIKI
 CONTIKI = ../../../contiki
 endif
 
+TARGET = c64
+
 #
 # --- Default (omit BBS_SERIAL, or BBS_SERIAL=0): contiki-bbs.c64 -----------------
 # Contiki uIP/TCP on the C64; CS8900A (RR-Net / TFE) via STATIC_DRIVER=_cs8900a.
@@ -11,6 +13,13 @@ endif
 # No Contiki TCP/uIP on the C64. Host runs telnet/TCP bridge. XMODEM is serial-only.
 #
 BBS_SERIAL_FLAVOR := $(strip $(BBS_SERIAL))
+ifneq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
+BBS_CORE_VARIANT := serial
+else
+BBS_CORE_VARIANT := tcp
+endif
+CUSTOM_RULE_ALLOBJS_TO_TARGETLIB = 1
+
 ifneq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
 CONTIKI_PROJECT := magnetar-serial
 SKIP_CONTIKI_MAIN := 1
@@ -39,6 +48,14 @@ CONTIKI_NET_MINIMAL := 1
 BBS_HEADLESS := 1
 CONTIKI_BBS_MINIMAL := 1
 PROJECT_SOURCEFILES = bbs-wrap.c bbs-shell.c bbs-file.c bbs-shared-reserve.S bbs-core-api.S bbs-resident.c bbs-bank.c bbs-telnetd.c bbs-encodings.c
+# WITH_PFS: contiki.cfg and //x/ BBS paths via cfs_open (not cbm_* during boot).
+DEFINES = WITH_LOGGING,WITH_PFS,TELNETD_CONF_REJECT,UIP_CONF_LOGGING=0,MAGNETAR_BBS,MAGNETAR_STATIC_NETCFG,STATIC_DRIVER=cs8900a
+CFLAGS += -DCONNECTIONS=2 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=256 -DUIP_CONF_TCP_MSS=180 -DUIP_CONF_ARPTAB_SIZE=2 -DUIP_CONF_ICMP=0 -DUIP_CONF_STATISTICS=0
+PROJECT_SOURCEFILES += magnetar-netcfg.c
+CONTIKI_WITH_IPV4  = 1
+CONTIKI_WITH_IPV6  = 0
+CONTIKI_WITH_RIME  = 0
+CONTIKI_WITH_RPL   = 0
 endif
 
 all: $(CONTIKI_PROJECT) banks memcheck
@@ -51,40 +68,34 @@ memcheck: $(CONTIKI_PROJECT).c64 banks
 	@echo "  MEMCHECK  shared struct"
 	@$(CC) -c $(CFLAGS) -o $(OBJECTDIR)/bbs-shared-size.o bbs-shared-size.c
 	@echo "  MEMCHECK  core"
-	@python3 $(CURDIR)/check-memmap.py core contiki-c64.map $(CONTIKI_PROJECT).c64 0
+	@python3 $(CURDIR)/check-memmap.py core $(CONTIKI_PROJECT).c64.map $(CONTIKI_PROJECT).c64 0
 	@set -e; for n in 1 2 3 4 5; do \
 	  echo "  MEMCHECK  bank$$n"; \
 	  python3 $(CURDIR)/check-memmap.py bank bank$$n.prg.map bank$$n.prg $$n; \
 	done
 
-$(OBJECTDIR):
-	@mkdir -p "$@"
-
-TARGET = c64
 BANK_CFG = c64-bbs-bank.cfg
-BANK_CC65_LIB = $(OBJECTDIR)/c64-bank.lib
-
-ifeq ($(filter 1 2,$(BBS_SERIAL_FLAVOR)),)
-# WITH_PFS: contiki.cfg and //x/ BBS paths via cfs_open (not cbm_* during boot).
-DEFINES = WITH_LOGGING,WITH_PFS,TELNETD_CONF_REJECT,UIP_CONF_LOGGING=0,MAGNETAR_BBS,MAGNETAR_STATIC_NETCFG,STATIC_DRIVER=cs8900a
-CFLAGS += -DCONNECTIONS=2 -DUIP_CONF_MAX_LISTENPORTS=1 -DUIP_CONF_UDP=0 -DUIP_CONF_ACTIVE_OPEN=0 -DMTU_SIZE=256 -DUIP_CONF_TCP_MSS=180 -DUIP_CONF_ARPTAB_SIZE=2 -DUIP_CONF_ICMP=0 -DUIP_CONF_STATISTICS=0
-PROJECT_SOURCEFILES += magnetar-netcfg.c
-CONTIKI_WITH_IPV4  = 1
-CONTIKI_WITH_IPV6  = 0
-CONTIKI_WITH_RIME  = 0
-CONTIKI_WITH_RPL   = 0
-endif
-
-CFLAGS += --static-locals
-
-# Keep core BSS below $B000; bank overlays load at $B000-$BFFF.
 CORE_CFG = c64-bbs-core.cfg
+
+# Must beat Makefile.include's OBJECTDIR=obj_c64 assignment (override sticks).
+override OBJECTDIR := obj_c64_$(BBS_CORE_VARIANT)
 
 include $(CONTIKI)/Makefile.include
 
+CONTIKI_AR := contiki-$(TARGET)-$(BBS_CORE_VARIANT).a
+CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname, $(CONTIKI_SOURCEFILES)}}
+PROJECT_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname, $(PROJECT_SOURCEFILES)}}
+BANK_CC65_LIB = $(OBJECTDIR)/c64-bank.lib
+
+CFLAGS += --static-locals
+
+$(CONTIKI_AR): $$(CONTIKI_OBJECTFILES)
+	$(TRACE_AR)
+	$(Q)$(AR) $(AROPTS) $@ $^
+
 # After Contiki's cpu/6502/Makefile.6502 resets LDFLAGS (-t c64).
 # Use our core cfg instead of -t; ld65 rejects -C and -t together.
-LDFLAGS := $(filter-out -t $(TARGET) -D __STACKSIZE__=0x200,$(LDFLAGS)) -C $(CORE_CFG)
+LDFLAGS := $(filter-out -t $(TARGET) -D __STACKSIZE__=0x200 -m contiki-$(TARGET).map,$(LDFLAGS)) -C $(CORE_CFG) -m $(CONTIKI_PROJECT).c64.map
 
 $(OBJECTDIR)/bbs-shell.o: bbs-shell.c
 	@echo "  CC        $<"
@@ -131,6 +142,15 @@ CONTIKI_OBJECTFILES := ${addprefix $(OBJECTDIR)/,${call oname,$(CONTIKI_SOURCEFI
 endif
 
 CC65_LIB = $(patsubst %/target,%/lib,$(shell $(CC) --print-target-path))/$(TARGET).lib
+
+# Beat Makefile.customrules-6502 (hard-coded contiki-$(TARGET).a archive name).
+contiki-bbs.c64: contiki-bbs.co $(PROJECT_OBJECTFILES) $(PROJECT_LIBRARIES) $(CONTIKI_AR)
+	@echo "  LD        $@"
+	$(Q)$(LD) -o $@ $(LDFLAGS) -u _main $^ $(CC65_LIB)
+
+magnetar-serial.c64: magnetar-serial.co $(PROJECT_OBJECTFILES) $(PROJECT_LIBRARIES) $(CONTIKI_AR)
+	@echo "  LD        $@"
+	$(Q)$(LD) -o $@ $(LDFLAGS) -u _main $^ $(CC65_LIB)
 
 $(OBJECTDIR)/vendor/up2400/c64-up2400.o: vendor/up2400/c64-up2400.S | $(OBJECTDIR)
 	@mkdir -p $(dir $@)
