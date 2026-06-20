@@ -53,7 +53,9 @@ PROCESS_NAME(telnetd_process);
 void bbs_transport_session_close(void);
 void bbs_transport_busy_reject(void);
 void bbs_transport_stream_clear_sent(void);
+/* Connect init / login reject only — memset's screen ring; not for mid-session use. */
 void bbs_transport_buf_reset(void);
+/* Mid-session pointer reset (bank load, login banner, reads). */
 void bbs_transport_buf_discard(void);
 /* Screen RAM layout: full 1 KiB telnet ring (default). */
 void bbs_scr_layout_output(void);

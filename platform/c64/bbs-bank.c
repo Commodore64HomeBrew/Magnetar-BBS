@@ -109,7 +109,8 @@ bbs_bank_load(unsigned char bank_id)
     bbs_bank_forget();
     return 0u;
   }
-  bbs_transport_buf_reset();
+  /* Pointer reset only: memset here wipes live screen/outbound RAM at $0400. */
+  bbs_transport_buf_discard();
   return 1u;
 }
 

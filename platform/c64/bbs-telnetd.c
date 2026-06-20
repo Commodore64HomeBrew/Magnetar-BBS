@@ -340,6 +340,13 @@ buf_scr_guard(void)
   }
 }
 
+/*
+ * Outbound ring uses screen RAM ($0400+). Policy:
+ * - bbs_transport_buf_discard(): pointer reset only; safe mid-session (bank load,
+ *   login banner, read prep). New output overwrites stale bytes in the ring window.
+ * - bbs_transport_buf_reset(): also memset's bufmem; use only at connect init or
+ *   login reject/disconnect when replacing all pending wire content is required.
+ */
 void
 bbs_transport_buf_discard(void)
 {
@@ -363,7 +370,7 @@ bbs_transport_buf_reset(void)
   st = bbs_status.status;
   if(st != STATUS_READ && st != STATUS_DIRLIST &&
       st != STATUS_STREAM && st != STATUS_XFER) {
-    /* Ring uses screen RAM; reset pointers alone leaves stale bytes in the send window. */
+    /* See discard vs reset policy above; not for mid-session bank/command paths. */
     memset(buf.bufmem, 0x20, buf.size);
   }
   buf.head = 0u;

@@ -28,10 +28,9 @@ bbs_msg_set_op(const char *cmd)
   acted = 0u;
   switch(c) {
   case 'r':
-    num = bbs_usrstats.current_msg[bbs_status.board_id] - 1u;
-    if(num > 0u) {
+    if(bbs_usrstats.current_msg[bbs_status.board_id] > 1u) {
       --bbs_usrstats.current_msg[bbs_status.board_id];
-      read_msg(num);
+      read_msg(bbs_usrstats.current_msg[bbs_status.board_id]);
       acted = 1u;
     }
     break;

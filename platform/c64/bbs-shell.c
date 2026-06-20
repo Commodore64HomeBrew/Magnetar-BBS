@@ -423,7 +423,7 @@ void bbs_login()
 #ifndef BBS_SERIAL_TRANSPORT
 	bbs_transport_flush_outbound();
 #endif
-	bbs_transport_buf_reset();
+	bbs_transport_buf_discard();
 	process_exit(&bbs_timer_process);
 	bbs_status.status=STATUS_LOCK;
 
