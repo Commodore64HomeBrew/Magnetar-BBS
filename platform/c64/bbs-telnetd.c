@@ -994,13 +994,19 @@ bbs_serial_flush_outbound(void)
 {
   unsigned int stall;
   unsigned int prev_used;
+  unsigned long t0;
 
   if(s.connected == 0u) {
     return;
   }
   /* TX-only flush: avoid nested RX/shell re-entry while waiting for wire drain. */
+  t0 = telnetd_serial_jiffy24();
   stall = 0u;
-  while(buf.used != 0u && s.connected != 0u && stall < 65535u) {
+  while(buf.used != 0u && s.connected != 0u) {
+    if(stall >= 4096u ||
+        (telnetd_serial_jiffy24() - t0) >= (unsigned long)(CLK_TCK * 3u)) {
+      break;
+    }
     prev_used = buf.used;
     telnetd_serial_tx();
     if(buf.used < prev_used) {
